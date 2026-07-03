@@ -1,0 +1,54 @@
+#!/bin/bash
+#PBS -N ds_build_test
+#PBS -P ds_ccds_wei.lu
+#PBS -q gpu_ded
+#PBS -l select=1:ncpus=12:ngpus=1
+#PBS -l walltime=00:10:00
+#PBS -j oe
+
+set -euo pipefail
+
+module purge
+module load anaconda/2025
+module load cuda/13.1
+eval "$(/usr/local/anaconda2025/bin/conda shell.bash hook)"
+conda activate opsd
+
+cd /home/xiaoyan.yu/projects/OPSD
+export PYTHONUNBUFFERED=1
+# No 12.x CUDA module exists (only cuda/13.0, cuda/13.1); torch 2.8.0 is cu128, so
+# DeepSpeed's CPUAdam JIT build fails the strict version check (13.1 vs 12.8). Skip it.
+export DS_SKIP_CUDA_CHECK=1
+# The anaconda/2025 module exports CPATH=/usr/local/anaconda2025/include:... which
+# contains a SECOND torch (base env, py3.11). During the nvcc/ninja build that stray
+# copy collides with the opsd env's torch headers ("redefinition of torch::OrderedDict",
+# "conflicting declaration torch::kUInt8"). Drop the polluted include env so only the
+# activated conda env's headers are used. The extension is cached in
+# ~/.cache/torch_extensions (shared home); once this build succeeds training reuses it.
+unset CPATH C_INCLUDE_PATH CPLUS_INCLUDE_PATH
+
+if echo "${CUDA_VISIBLE_DEVICES:-}" | grep -q "GPU-"; then
+    GPU_COUNT=$(echo "${CUDA_VISIBLE_DEVICES}" | tr ',' '\n' | wc -l)
+    CUDA_VISIBLE_DEVICES=$(seq -s, 0 $((GPU_COUNT - 1)))
+    export CUDA_VISIBLE_DEVICES
+fi
+
+mkdir -p pbs/logs
+exec > "pbs/logs/ds_build_test.${PBS_JOBID}.log" 2>&1
+
+echo "Job: ${PBS_JOBID}  Node: $(hostname)  GPU: ${CUDA_VISIBLE_DEVICES:-unset}"
+nvidia-smi -L
+echo "nvcc: $(which nvcc) $(nvcc --version | tail -1)"
+
+echo "=== DeepSpeedCPUAdam JIT build + step test ==="
+python -c "
+import torch
+from deepspeed.ops.adam import DeepSpeedCPUAdam
+p = torch.nn.Parameter(torch.randn(10))
+opt = DeepSpeedCPUAdam([p])
+p.grad = torch.randn(10)
+opt.step()
+print('DeepSpeedCPUAdam build & step OK')
+"
+
+echo "=== DONE ==="

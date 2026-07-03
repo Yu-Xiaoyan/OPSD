@@ -17,6 +17,17 @@ conda activate opsd
 cd /home/xiaoyan.yu/projects/OPSD
 export PYTHONUNBUFFERED=1
 export HF_HUB_OFFLINE=1
+# No 12.x CUDA module is available on this cluster (only cuda/13.0, cuda/13.1),
+# while torch 2.8.0 is built against cu128. DeepSpeed's CPUAdam JIT build aborts
+# on the major-version mismatch (13.1 vs 12.8). Skip the strict check: CPUAdam is
+# a CPU-side op and compiles/runs fine under the newer toolkit.
+export DS_SKIP_CUDA_CHECK=1
+# The anaconda/2025 module exports CPATH=/usr/local/anaconda2025/include:... which
+# holds a SECOND torch (base env, py3.11); during the CPUAdam nvcc/ninja build it
+# collides with the opsd env's torch headers and the compile fails with
+# "redefinition of torch::OrderedDict". Drop the polluted include env so only the
+# activated conda env's headers are used. Validated by pbs/ds_build_test.pbs.
+unset CPATH C_INCLUDE_PATH CPLUS_INCLUDE_PATH
 
 if echo "${CUDA_VISIBLE_DEVICES:-}" | grep -q "GPU-"; then
     GPU_COUNT=$(echo "${CUDA_VISIBLE_DEVICES}" | tr ',' '\n' | wc -l)
@@ -29,6 +40,7 @@ exec > "pbs/logs/opsd_repro_1b.${PBS_JOBID}.log" 2>&1
 
 echo "Job: ${PBS_JOBID}  Node: $(hostname)  GPU: ${CUDA_VISIBLE_DEVICES:-unset}"
 nvidia-smi -L
+echo "nvcc: $(which nvcc) $(nvcc --version | tail -1)"
 
 bash scripts/run_opsd_1b_3gpu.sh
 
