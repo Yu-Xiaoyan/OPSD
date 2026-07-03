@@ -1,0 +1,94 @@
+#!/bin/bash
+#PBS -N eval_opsd_1b
+#PBS -P ds_ccds_wei.lu
+#PBS -q gpu_ded
+#PBS -l select=1:ncpus=12:ngpus=3
+#PBS -l walltime=04:00:00
+#PBS -j oe
+
+set -uo pipefail
+
+module purge
+module load anaconda/2025
+module load cuda/13.1
+eval "$(/usr/local/anaconda2025/bin/conda shell.bash hook)"
+conda activate opsd
+
+cd /home/xiaoyan.yu/projects/OPSD
+export PYTHONUNBUFFERED=1
+export HF_HUB_OFFLINE=1            # aime24/aime25 pre-fetched into HF cache on login node
+export NCCL_P2P_DISABLE=1          # matches eval/run_eval.sh
+# Environment hygiene (same as the training job): skip DeepSpeed's strict CUDA
+# version gate, and drop the anaconda/2025 CPATH pollution that carries a second
+# torch. Harmless for a vLLM-only eval, kept for consistency.
+export DS_SKIP_CUDA_CHECK=1
+unset CPATH C_INCLUDE_PATH CPLUS_INCLUDE_PATH
+
+# PBS may expose GPUs as UUIDs; remap to contiguous indices 0..N-1.
+if echo "${CUDA_VISIBLE_DEVICES:-}" | grep -q "GPU-"; then
+    GPU_COUNT=$(echo "${CUDA_VISIBLE_DEVICES}" | tr ',' '\n' | wc -l)
+    CUDA_VISIBLE_DEVICES=$(seq -s, 0 $((GPU_COUNT - 1)))
+    export CUDA_VISIBLE_DEVICES
+fi
+
+mkdir -p pbs/logs results/repro_eval
+exec > "pbs/logs/eval_opsd_1b.${PBS_JOBID}.log" 2>&1
+
+echo "Job: ${PBS_JOBID}  Node: $(hostname)  GPU: ${CUDA_VISIBLE_DEVICES:-unset}"
+nvidia-smi -L
+echo "nvcc: $(which nvcc) $(nvcc --version | tail -1)"
+
+PY="$HOME/.conda/envs/opsd/bin/python"
+BASE="$HOME/models/Qwen3-1.7B"
+CKPT_DIR="$HOME/opsd_outputs/qwen31b_repro_3xh200_gb30"
+
+# Official eval setting (README / task): temperature=1.0, thinking mode enabled
+# (default; no --no_thinking), max_new_tokens=38912, top-p none (=1.0 in vLLM),
+# top-k disabled (-1), min-p 0, presence_penalty 0, num_samples(val_n)=12.
+# NOTE: run_eval.sh omits --top_p and would auto-default to 0.95; we pass 1.0 to
+# match the documented "top-p none" setting.
+run_eval() {
+    local ds="$1" ckpt="$2"
+    local ckpt_arg=""
+    [ -n "$ckpt" ] && ckpt_arg="--checkpoint_dir $ckpt"
+    echo "### START $(date '+%F %T')  dataset=$ds  ckpt=${ckpt:-BASE}"
+    "$PY" eval/evaluate_math.py \
+        --base_model "$BASE" $ckpt_arg \
+        --dataset "$ds" \
+        --val_n 12 \
+        --temperature 1.0 \
+        --top_p 1.0 \
+        --top_k -1 \
+        --min_p 0 \
+        --presence_penalty 0 \
+        --max_new_tokens 38912 \
+        --tensor_parallel_size 1 \
+        --gpu_memory_utilization 0.9 \
+        --output_file "results/repro_eval/${3}_${ds}.json" \
+        || echo "!!! FAILED dataset=$ds ckpt=${ckpt:-BASE}"
+    echo "### END   $(date '+%F %T')  dataset=$ds  ckpt=${ckpt:-BASE}"
+}
+
+# One model per GPU, each stream evaluates both datasets serially.
+# tp=1 because num_key_value_heads=8 is not divisible by 3 (tp=3 would fail),
+# and Qwen3-1.7B fits comfortably on a single H200.
+stream() {
+    local gpu="$1" tag="$2" ckpt="$3"
+    CUDA_VISIBLE_DEVICES="$gpu" run_eval aime24 "$ckpt" "$tag"
+    CUDA_VISIBLE_DEVICES="$gpu" run_eval aime25 "$ckpt" "$tag"
+}
+
+stream 0 base    ""                          > "pbs/logs/eval_base.${PBS_JOBID}.log"    2>&1 &
+PID0=$!
+stream 1 ckpt50  "$CKPT_DIR/checkpoint-50"   > "pbs/logs/eval_ckpt50.${PBS_JOBID}.log"  2>&1 &
+PID1=$!
+stream 2 ckpt100 "$CKPT_DIR/checkpoint-100"  > "pbs/logs/eval_ckpt100.${PBS_JOBID}.log" 2>&1 &
+PID2=$!
+
+wait $PID0; echo "stream base    exit=$?"
+wait $PID1; echo "stream ckpt50  exit=$?"
+wait $PID2; echo "stream ckpt100 exit=$?"
+
+echo "=== results written ==="
+ls -la results/repro_eval/
+echo "=== DONE ==="
