@@ -16,7 +16,6 @@ conda activate opsd
 
 cd /home/xiaoyan.yu/projects/OPSD
 export PYTHONUNBUFFERED=1
-export WANDB_MODE=offline
 export HF_HUB_OFFLINE=1
 
 if echo "${CUDA_VISIBLE_DEVICES:-}" | grep -q "GPU-"; then

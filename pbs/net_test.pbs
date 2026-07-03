@@ -1,0 +1,19 @@
+#!/bin/bash
+#PBS -N net_test
+#PBS -P ds_ccds_wei.lu
+#PBS -q gpu_ded
+#PBS -l select=1:ncpus=2:ngpus=1
+#PBS -l walltime=00:05:00
+#PBS -j oe
+
+cd $PBS_O_WORKDIR
+mkdir -p pbs/logs
+exec > "pbs/logs/net_test.${PBS_JOBID}.log" 2>&1
+
+echo "Node: $(hostname)"
+echo "=== wandb api ==="
+curl -s -m 10 -o /dev/null -w "%{http_code}\n" https://api.wandb.ai || echo "FAIL"
+echo "=== hf hub ==="
+curl -s -m 10 -o /dev/null -w "%{http_code}\n" https://huggingface.co || echo "FAIL"
+echo "=== github ==="
+curl -s -m 10 -o /dev/null -w "%{http_code}\n" https://github.com || echo "FAIL"
