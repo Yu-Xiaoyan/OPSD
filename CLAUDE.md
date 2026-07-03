@@ -2,7 +2,8 @@
 
 On-Policy Self-Distillation (OPSD) reproduction. The code is built on top of
 `trl`'s experimental **GOLD** trainer. `main` mirrors the official release; this
-repo is being adapted to run offline on the NTU PBS cluster.
+repo is being adapted to run on the NTU PBS cluster with pre-staged models and
+datasets (see §2 for the network/offline policy).
 
 > Terminology note: in this repo "OPSD" is the **official baseline method**
 > (cot + a single privileged-context teacher). Do not describe it as a
@@ -20,24 +21,27 @@ repo is being adapted to run offline on the NTU PBS cluster.
   with a clear, descriptive name (see `pbs/smoke_test.pbs` as the template).
 - `pbs/logs/` holds run logs and must not be committed.
 
-## 2. Compute nodes have NO internet — everything must run offline
+## 2. Network & offline policy
 
-The GPU nodes cannot reach the network. Every script must be offline-safe:
+**Measured (2026-07-03, node `hpc-gaas-g02`): the compute nodes CAN reach the
+network** — wandb API, HF Hub, and GitHub are all reachable. Earlier notes
+assuming an air-gapped node were wrong and have been removed.
 
-- Export **`HF_HUB_OFFLINE=1`** and **`HF_DATASETS_OFFLINE=1`** and
-  **`WANDB_MODE=offline`** in every training/eval job.
-- Load models from **local paths under `~/models/`** (e.g.
-  `~/models/Qwen3-1.7B`). The upstream scripts hard-code paths such as
-  `/data0/shared/Qwen3-1.7B` — these must be repointed to `~/models/…` on
-  `repro`.
-- **Do not write code that can silently trigger a network download.** In
-  particular, any `load_dataset("<hub-name>")` / `from_pretrained("<hub-name>")`
-  must resolve from a pre-populated HF cache, and any `trust_remote_code=True`
-  dataset (aime25, hmmt25) needs its loader script cached in advance. If a
-  dataset/model is not already local, download it on a login node first, never
-  from inside a job.
-- No implicit calls to WandB servers, HF Hub, `trackio`, etc. from compute
-  nodes.
+- **WandB runs in online mode**, uploading in real time. Run `wandb login` once
+  on a login node; jobs then log live. Do **not** set `WANDB_MODE=offline`.
+- **HF loading keeps `HF_HUB_OFFLINE=1` as an engineering discipline, not a
+  network constraint.** Models and datasets must be pre-downloaded to local
+  storage (`~/models/` and the HF cache) so that training never depends on
+  runtime connectivity — this buys reproducibility and immunity to service
+  flakiness, not offline survival.
+  - Load models from **local paths under `~/models/`** (e.g.
+    `~/models/Qwen3-1.7B`). Upstream scripts hard-code paths such as
+    `/data0/shared/Qwen3-1.7B` — repoint these to `~/models/…` on `repro`.
+  - Pre-fetch every dataset before a run: the training set and all eval sets are
+    loaded by HF hub name, and `trust_remote_code=True` sets (aime25, hmmt25)
+    need their loader scripts cached too. With `HF_HUB_OFFLINE=1` a missing
+    cache entry fails fast (by design) instead of silently downloading
+    mid-training — download it on a login node first.
 
 ## 3. Conda environment
 
@@ -80,7 +84,7 @@ module load cuda/13.1              # as needed for builds
 
 - **`main`** — official upstream mirror. Keep it clean; do not adapt it to the
   cluster.
-- **`repro`** — reproduction/cluster adaptation (offline paths, 3-GPU launch,
+- **`repro`** — reproduction/cluster adaptation (local `~/models/` paths, 3-GPU launch,
   PBS wrappers). This is the working branch.
 - **`probes`** — probe / analysis development.
 

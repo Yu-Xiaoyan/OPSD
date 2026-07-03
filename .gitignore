@@ -9,3 +9,5 @@ pbs/logs/
 *.jsonl
 *.log
 results/*.o[0-9]*
+*.o2*
+*.o[0-9][0-9]*
