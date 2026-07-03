@@ -1,0 +1,52 @@
+#!/bin/bash
+#PBS -N smoke_test
+#PBS -P ds_ccds_wei.lu
+#PBS -q gpu_ded
+#PBS -l select=1:ncpus=12:ngpus=3
+#PBS -l walltime=00:15:00
+#PBS -j oe
+
+set -euo pipefail
+
+module purge
+module load anaconda/2025
+module load cuda/13.1
+eval "$(/usr/local/anaconda2025/bin/conda shell.bash hook)"
+conda activate opsd
+
+cd /home/xiaoyan.yu/projects/OPSD
+export PYTHONUNBUFFERED=1
+
+if echo "${CUDA_VISIBLE_DEVICES:-}" | grep -q "GPU-"; then
+    GPU_COUNT=$(echo "${CUDA_VISIBLE_DEVICES}" | tr ',' '\n' | wc -l)
+    CUDA_VISIBLE_DEVICES=$(seq -s, 0 $((GPU_COUNT - 1)))
+    export CUDA_VISIBLE_DEVICES
+fi
+
+mkdir -p pbs/logs
+exec > "pbs/logs/smoke_test.${PBS_JOBID}.log" 2>&1
+
+echo "Job: ${PBS_JOBID}  Node: $(hostname)  GPU: ${CUDA_VISIBLE_DEVICES:-unset}"
+nvidia-smi -L
+
+echo "=== flash-attn GPU test ==="
+python -c "
+import torch
+from flash_attn import flash_attn_func
+q = torch.randn(1, 8, 16, 64, dtype=torch.bfloat16, device='cuda')
+print(flash_attn_func(q, q, q).shape)
+print('flash-attn OK on', torch.cuda.get_device_name(0))
+"
+
+echo "=== multi-GPU visibility ==="
+python -c "
+import torch
+print('visible GPUs:', torch.cuda.device_count())
+for i in range(torch.cuda.device_count()):
+    print(i, torch.cuda.get_device_name(i))
+"
+
+echo "=== local models ==="
+ls ~/models/ 2>/dev/null
+
+echo "=== DONE ==="

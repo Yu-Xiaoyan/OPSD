@@ -1,3 +1,11 @@
 __pycache__/
 *.py[cod]
 *$py.class
+outputs/
+checkpoints/
+wandb/
+logs/
+pbs/logs/
+*.jsonl
+*.log
+results/
