@@ -13,6 +13,7 @@ accelerate launch \
     --output_dir /home/xiaoyan.yu/opsd_outputs/ \
     --run_config qwen31b_repro_3xh200_gb30 \
     --num_train_epochs 30 \
+    --max_steps 150 \
     --max_completion_length 1024 \
     --save_steps 25 \
     --logging_steps 2 \
@@ -34,4 +35,4 @@ accelerate launch \
     --lmbda 1 \
     --fixed_teacher \
     --jsd_token_clip 0.05 \
-    --wandb_project OPSD
+    --wandb_project opsd-repro
