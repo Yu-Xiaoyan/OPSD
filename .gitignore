@@ -8,4 +8,4 @@ logs/
 pbs/logs/
 *.jsonl
 *.log
-results/
+results/*.o[0-9]*
