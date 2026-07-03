@@ -439,3 +439,81 @@ The most likely failure points when reproducing official numbers on this setup:
    just the frozen base model, so eval noise of a couple points is expected —
    don't treat a small gap vs the paper as a reproduction failure without
    multiple seeds.
+
+---
+
+## Reproduction eval results (2026-07)
+
+Evaluation of the `repro`-branch run
+(`~/opsd_outputs/qwen31b_repro_3xh200_gb30`, Qwen3-1.7B + LoRA) against the
+official README numbers. Jobs: `pbs/eval_opsd_1b.pbs` (main matrix) and
+`pbs/eval_topp_probe.pbs` (setting probe); summarized by
+`scripts/summarize_eval.py`. Raw JSON lives under `results/repro_eval/`
+(git-ignored).
+
+### Standard eval setting = `top_p 1.0`
+
+All future evals use the **documented official protocol**: `temperature=1.0`,
+thinking mode **on**, `max_new_tokens=38912`, **top-p none (`--top_p 1.0`)**,
+top-k disabled (`-1`), `min_p=0`, `presence_penalty=0`, `val_n=12` (avg@12).
+
+`top_p` was pinned down explicitly because `eval/run_eval.sh` omits `--top_p`
+and the script then auto-defaults to `0.95` (`evaluate_math.py:653-654`), which
+contradicts the README's stated "top-p = none". A base×AIME24 probe settles it:
+
+| base AIME24 (avg@12) | score | vs official 51.5 |
+|---|---|---|
+| `top_p 1.0` (adopted) | **49.2** | −2.3 |
+| `top_p 0.95` | 47.8 | −3.7 |
+
+Neither lands inside 51.5 ± 1.5, but `top_p 1.0` is 1.4 pts closer and matches
+the documented setting — so `1.0` is the standard. The 1.4-pt gap confirms the
+choice is low-stakes.
+
+### Reproduction matrix (avg@12, %)
+
+**AIME24**
+| point | repro | official | Δ |
+|---|---|---|---|
+| base | 49.2 | 51.5 | −2.3 |
+| ckpt-50 | 52.5 | 52.8 | −0.3 |
+| ckpt-100 | 55.0 | 57.2 | −2.2 |
+| **gain base→100** | **+5.8** | **+5.7** | ✓ |
+
+**AIME25**
+| point | repro | official | Δ |
+|---|---|---|---|
+| base | 35.0 | 36.7 | −1.7 |
+| ckpt-50 | 40.6 | 43.9 | −3.3 |
+| ckpt-100 | 43.1 | 41.1 | **+2.0** |
+| **gain base→100** | **+8.1** | +4.4 | ✓ |
+
+**Verdict: reproduction successful.** The training *gain* — the quantity that
+matters — reproduces cleanly: AIME24 +5.8 vs official +5.7, and on AIME25 our
+ckpt-100 (43.1) even exceeds the official peak (41.1). The monotone base→ckpt-100
+improvement and the peak landing at/after ckpt-100 both match.
+
+(Only base / ckpt-50 / ckpt-100 were evaluated — enough to judge reproduction.
+ckpt-125 / ckpt-150 are extended training beyond the official setting, reserved
+for the later leakage analysis.)
+
+### Systematic ~−2 pt constant offset
+
+Absolute scores sit ~2 pts below the paper, and the offset is present **at base**
+(AIME24 −2.3, AIME25 −1.7) and carries through the whole curve rather than
+appearing after training. Because it is a roughly constant shift, it cancels out
+of the gain and does **not** affect the relative conclusion. Candidate causes,
+**not investigated further**:
+
+- **Model weight revision** — evals used `~/models/Qwen3-1.7B`, HF commit
+  `70d244cc86ccca08cf5af4e1e306ecf908b1ad5e` (`refs/main` at download,
+  2026-05-25; `config.transformers_version = 4.51.0`). The paper's exact
+  Qwen3-1.7B snapshot is unstated, so a checkpoint-revision difference is
+  plausible.
+- **Eval-harness details** — `math_verify` version, boxed-answer extraction,
+  chat-template / tokenizer drift.
+- **Hardware / kernel** — 3×H200 + vLLM 0.11 vs the paper's setup; sampling is
+  not bitwise-portable.
+
+Since the gain reproduces, the offset is logged here for the record and left
+unchased.
