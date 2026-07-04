@@ -1,0 +1,12 @@
+# Leakage keyword seed list (behavioral leakage detector v1).
+# One phrase per line; blank lines and lines starting with '#' are ignored.
+# Matching is case-insensitive, whitespace-collapsed substring match.
+# Extend freely — this file is the single source of truth for the keyword probe.
+reference solution
+the given solution
+provided solution
+the solution above
+as shown in the solution
+the reference
+given answer
+the correct answer is given
