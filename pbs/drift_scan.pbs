@@ -1,0 +1,50 @@
+#!/bin/bash
+#PBS -N drift_scan
+#PBS -P ds_ccds_wei.lu
+#PBS -q gpu_ded
+#PBS -l select=1:ncpus=12:ngpus=3
+#PBS -l walltime=01:00:00
+#PBS -j oe
+
+set -uo pipefail
+
+module purge
+module load anaconda/2025
+module load cuda/13.1
+eval "$(/usr/local/anaconda2025/bin/conda shell.bash hook)"
+conda activate opsd
+
+cd /home/xiaoyan.yu/projects/OPSD
+export PYTHONUNBUFFERED=1
+export HF_HUB_OFFLINE=1
+export NCCL_P2P_DISABLE=1
+export DS_SKIP_CUDA_CHECK=1
+unset CPATH C_INCLUDE_PATH CPLUS_INCLUDE_PATH
+
+if echo "${CUDA_VISIBLE_DEVICES:-}" | grep -q "GPU-"; then
+    GPU_COUNT=$(echo "${CUDA_VISIBLE_DEVICES}" | tr ',' '\n' | wc -l)
+    CUDA_VISIBLE_DEVICES=$(seq -s, 0 $((GPU_COUNT - 1)))
+    export CUDA_VISIBLE_DEVICES
+fi
+
+mkdir -p pbs/logs
+exec > "pbs/logs/drift_scan.${PBS_JOBID}.log" 2>&1
+
+echo "Job: ${PBS_JOBID}  Node: $(hostname)  GPU: ${CUDA_VISIBLE_DEVICES:-unset}"
+nvidia-smi -L
+
+PY="$HOME/.conda/envs/opsd/bin/python"
+echo "=== drift scan: 6 ckpts x 187 rollouts, 3-way sharded ==="
+CUDA_VISIBLE_DEVICES=0 $PY probes/drift_scan.py --shard 0 --nshards 3 > pbs/logs/drift_s0.${PBS_JOBID}.log 2>&1 &
+P0=$!
+CUDA_VISIBLE_DEVICES=1 $PY probes/drift_scan.py --shard 1 --nshards 3 > pbs/logs/drift_s1.${PBS_JOBID}.log 2>&1 &
+P1=$!
+CUDA_VISIBLE_DEVICES=2 $PY probes/drift_scan.py --shard 2 --nshards 3 > pbs/logs/drift_s2.${PBS_JOBID}.log 2>&1 &
+P2=$!
+wait $P0; echo "shard0 exit=$?"
+wait $P1; echo "shard1 exit=$?"
+wait $P2; echo "shard2 exit=$?"
+
+echo "=== shard outputs ==="
+wc -l probes/data/drift_shard*.jsonl
+echo "=== DONE ==="
