@@ -1,0 +1,93 @@
+# Token category config for probes/divergence.py::token_classifier.
+# Coarse 3-way split (math / style / other) following the keyword-classification
+# idea in the OPSD paper appendix C. Editable — this is the single source of
+# truth for the style vocabulary.
+#
+# Classification order per token (after stripping leading space markers ▁/Ġ):
+#   1. letters-only core word in `style_keywords`  -> style
+#   2. matches a math pattern (digit / operator / \latex-cmd / \boxed) -> math
+#   3. otherwise -> other
+
+# Connective / reflective / discourse words ("style" tokens). These are the
+# tokens the paper finds carry disproportionately high KL during distillation.
+style_keywords:
+  - wait
+  - hmm
+  - hmmm
+  - oh
+  - ah
+  - okay
+  - ok
+  - so
+  - well
+  - now
+  - then
+  - thus
+  - hence
+  - therefore
+  - actually
+  - basically
+  - essentially
+  - really
+  - maybe
+  - perhaps
+  - probably
+  - hold          # "hold on"
+  - but
+  - however
+  - though
+  - although
+  - alternatively
+  - instead
+  - otherwise
+  - anyway
+  - besides
+  - moreover
+  - furthermore
+  - first
+  - firstly
+  - second
+  - secondly
+  - next
+  - finally
+  - lastly
+  - again
+  - also
+  - let           # "let us / let's"
+  - lets
+  - think
+  - thinking
+  - thought
+  - recall
+  - note
+  - notice
+  - consider
+  - suppose
+  - assume
+  - observe
+  - remember
+  - seems
+  - seem
+  - guess
+  - wonder
+  - check
+  - verify
+  - confirm
+  - indeed
+  - clearly
+  - obviously
+  - since
+  - because
+  - if
+  - right
+  - yes
+  - no
+  - great
+  - good
+  - similarly
+  - likewise
+
+# Extra literal math tokens to force into the `math` class (beyond the built-in
+# digit / operator / \latex pattern). Usually empty.
+math_extra:
+  - boxed
