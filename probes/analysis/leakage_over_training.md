@@ -227,3 +227,46 @@ Independent scan over the eval generations (`results/repro_eval/`, TM-on 38k-tok
 - gt `70` | Find the sum of all integer bases $b>9$ for which $17_{b}$ is a divisor of $97_{b}$....
   - answer '70' early pos=0.24: ...to b = 21 and 49.  Therefore, the answer would be 21 + 49 = 70. But let me check again if there's something wrong here. ...
 
+<!-- NOGUARD-COMPARE -->
+
+## Experiment A — leakage: guard vs no-guard
+
+Leakage probes on the two runs' training rollouts (TM-off), clean metric (question-visibility filtered). guard = `qwen31b_repro_3xh200_gb30` (official prompt); noguard = `qwen31b_noguard_3xh200_gb30` (guard replaced by neutral connective, reference-solution segment kept). Appended by `probes/compare_noguard_leakage.py`.
+
+- **guard**: 29 steps, 1460 samples | keyword 4 (0.27%) | answer-early-clean 13/1019 (1.28%)
+- **noguard**: 29 steps, 1460 samples | keyword 4 (0.27%) | answer-early-clean 9/1019 (0.88%)
+
+| step | guard kw% | noguard kw% | guard early% | noguard early% |
+|--:|--:|--:|--:|--:|
+| 5 | 0.00 | 0.00 | 0.00 | 0.00 |
+| 10 | 0.00 | 0.00 | 0.00 | 0.00 |
+| 15 | 0.00 | 0.00 | 0.00 | 2.70 |
+| 20 | 0.00 | 0.00 | 2.86 | 5.71 |
+| 25 | 0.00 | 0.00 | 0.00 | 0.00 |
+| 30 | 0.00 | 0.00 | 0.00 | 2.78 |
+| 35 | 0.00 | 0.00 | 2.63 | 2.63 |
+| 40 | 0.00 | 0.00 | 0.00 | 0.00 |
+| 45 | 0.00 | 0.00 | 0.00 | 0.00 |
+| 50 | 0.00 | 0.00 | 0.00 | 3.57 |
+| 55 | 0.00 | 0.00 | 2.70 | 0.00 |
+| 60 | 0.00 | 0.00 | 6.25 | 0.00 |
+| 65 | 0.00 | 0.00 | 0.00 | 0.00 |
+| 70 | 0.00 | 0.00 | 3.12 | 0.00 |
+| 75 | 0.00 | 0.00 | 0.00 | 0.00 |
+| 80 | 0.00 | 0.00 | 0.00 | 0.00 |
+| 85 | 0.00 | 0.00 | 0.00 | 0.00 |
+| 90 | 0.00 | 0.00 | 2.94 | 2.94 |
+| 95 | 0.00 | 0.00 | 0.00 | 0.00 |
+| 100 | 4.00 | 2.00 | 0.00 | 0.00 |
+| 105 | 0.00 | 0.00 | 0.00 | 0.00 |
+| 110 | 2.00 | 2.00 | 0.00 | 0.00 |
+| 115 | 0.00 | 2.00 | 5.71 | 0.00 |
+| 120 | 0.00 | 0.00 | 0.00 | 0.00 |
+| 125 | 0.00 | 0.00 | 2.78 | 2.78 |
+| 130 | 0.00 | 0.00 | 3.03 | 0.00 |
+| 135 | 0.00 | 0.00 | 0.00 | 0.00 |
+| 140 | 2.00 | 2.00 | 0.00 | 0.00 |
+| 145 | 0.00 | 0.00 | 5.88 | 2.94 |
+
+**Read**: if noguard columns are systematically higher, the guard instruction was suppressing leakage-like behavior; if the two are within noise, the guard has no measurable behavioral effect at this scale (consistent with the near-zero absolute rates from the main scan).
+

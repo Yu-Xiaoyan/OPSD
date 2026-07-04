@@ -9,5 +9,6 @@ pbs/logs/
 *.jsonl
 *.log
 results/
+probes/analysis/samples/
 *.o2*
 *.o[0-9][0-9]*
