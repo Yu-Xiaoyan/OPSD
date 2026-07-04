@@ -15,6 +15,7 @@ from trl import (
 )
 from trl.experimental.gold import GOLDConfig
 from opsd_trainer import OPSDTrainer
+from data_collator import SelfDistillationDataCollator
 from dataclasses import dataclass, field
 
 # Enable logging in a Hugging Face Space
@@ -104,6 +105,14 @@ class CustomScriptArguments(ScriptArguments):
         metadata={
             "help": "Whether to enable Qwen3 thinking mode for the teacher when scoring student tokens. "
             "Default True. Set to False for the matched non-thinking ablation (both nonthink)."
+        },
+    )
+    transition_prompt_override: str = field(
+        default=None,
+        metadata={
+            "help": "PROBES-ONLY (experiment A): replace the teacher prompt's transition/guard "
+            "instruction with this string (literal '\\n' is converted to newline). "
+            "Default None = official prompt, byte-for-byte."
         },
     )
 
@@ -266,12 +275,28 @@ if __name__ == "__main__":
     dataset = load_dataset("siyanzhao/Openthoughts_math_30k_opsd")
     train_dataset = dataset["train"]
 
+    # Build the collator explicitly so experiment A can inject a transition-prompt
+    # override WITHOUT touching opsd_trainer.py. With override=None this is
+    # identical to the collator OPSDTrainer builds internally.
+    _override = script_args.transition_prompt_override
+    if _override is not None:
+        _override = _override.replace("\\n", "\n")
+    data_collator = SelfDistillationDataCollator(
+        tokenizer=tokenizer,
+        max_length=training_args.max_length,
+        reason_first=script_args.reason_first,
+        student_thinking=script_args.student_thinking,
+        teacher_thinking=script_args.teacher_thinking,
+        transition_prompt_override=_override,
+    )
+
     trainer = OPSDTrainer(
         model=model_args.model_name_or_path,
         args=training_args,
         train_dataset=train_dataset,
         eval_dataset=None,
         processing_class=tokenizer,
+        data_collator=data_collator,
         peft_config=get_peft_config(model_args),
         use_thinking_machines_loss=script_args.use_tinker_loss,
         fixed_teacher=script_args.fixed_teacher,

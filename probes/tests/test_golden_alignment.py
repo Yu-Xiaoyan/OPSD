@@ -201,6 +201,36 @@ class TestGoldenAlignment(unittest.TestCase):
               f"peak CUDA mem {peak:.2f} GB (T={self.T}, "
               f"teacher_prompt_len from setup)")
 
+    # ---- regression: transition_prompt_override (experiment A) ----------
+    def test_transition_override_regression(self):
+        """Default collator (override=None) must stay byte-for-byte official;
+        the neutral override must apply cleanly (drops the guard, keeps the
+        reference-solution segment and the boxed instruction)."""
+        tok = self.tokenizer
+        feat = {"problem": self.problem, "solution": self.solution}
+        c_def = SelfDistillationDataCollator(
+            tok, max_length=20000, reason_first=False,
+            student_thinking=False, teacher_thinking=True)
+        ids_def = c_def([feat])["teacher_prompts"][0].tolist()
+        probe_text = build_teacher_prompt_text(tok, self.problem, self.solution, True)
+        probe_ids = tok(probe_text, return_tensors="pt").input_ids[0].tolist()
+        self.assertEqual(ids_def, probe_ids,
+                         "default collator drifted from official teacher prompt")
+
+        NEUTRAL = "\n\nNow, derive the final answer to the problem above."
+        c_ng = SelfDistillationDataCollator(
+            tok, max_length=20000, reason_first=False, student_thinking=False,
+            teacher_thinking=True, transition_prompt_override=NEUTRAL)
+        ids_ng = c_ng([feat])["teacher_prompts"][0].tolist()
+        self.assertNotEqual(ids_def, ids_ng, "override had no effect")
+        txt = tok.decode(ids_ng)
+        self.assertIn("Now, derive the final answer to the problem above.", txt)
+        self.assertNotIn("do not copy or paraphrase", txt)
+        self.assertIn("=== Reference Solution Begin ===", txt)
+        self.assertIn("put your final answer within \\boxed{}", txt)
+        print(f"[REGRESSION] default P_t={len(ids_def)} byte-exact vs probe "
+              f"builder; noguard P_t={len(ids_ng)}, guard removed cleanly")
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

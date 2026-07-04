@@ -19,6 +19,7 @@ class SelfDistillationDataCollator:
         reason_first=True,
         student_thinking=False,
         teacher_thinking=True,
+        transition_prompt_override=None,
     ):
         self.tokenizer = tokenizer
         self.max_length = max_length
@@ -41,6 +42,12 @@ class SelfDistillationDataCollator:
             "Think step by step, explore different approaches, and don't be afraid to backtrack "
             "or reconsider if something doesn't work out:\n"
         )
+        # PROBES-ONLY (experiment A, probes branch): optionally replace the
+        # repeated "do not copy / use your own words" guard instruction with a
+        # neutral connective, to ablate that (unevaluated) leakage-mitigation
+        # prompt patch. Default None => teacher prompt is byte-for-byte official.
+        if transition_prompt_override is not None:
+            self.transition_prompt = transition_prompt_override
 
         # Set padding side explicitly for consistency
         print(f"[DataCollator] Original padding_side: {self.tokenizer.padding_side}")
