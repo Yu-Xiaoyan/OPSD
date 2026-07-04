@@ -129,7 +129,11 @@ def main():
                 jsd_sw = token_jsd(T_S, Tw).tolist()
                 del Tw
             sp = build_student_prompt_text(tok, problem, student_thinking=False)
-            S, _, _ = forward_rollout_logits(model, tok, sp, rollout)
+            S, _, _ = forward_rollout_logits(model, tok, sp, rollout)       # adapter ON
+            with teacher_mode(model):                                        # base, student prompt
+                S0, _, _ = forward_rollout_logits(model, tok, sp, rollout)
+            jsd_drift = token_jsd(S, S0).tolist()   # LoRA drift (S vs S0), for gate-A cross-tab
+            del S0
             jsd_ts = token_jsd(T_S, S).tolist()
             clip = clipped_kl_view(T_S, S, clip=0.05).tolist()
             del T_S, S
@@ -142,6 +146,7 @@ def main():
                 "jsd_corruption": jsd_corr,
                 "jsd_corruption_studentwrong": jsd_sw,
                 "jsd_teacher_student": jsd_ts,
+                "jsd_drift": jsd_drift,
                 "clipped_kl": clip,
                 "n_replacements": nrep,
                 "gt_answer": gt, "student_answer": r.get("student_answer"),

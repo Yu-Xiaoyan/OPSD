@@ -9,6 +9,7 @@ from __future__ import annotations
 import glob
 import json
 import os
+import re
 
 import numpy as np
 import matplotlib
@@ -22,6 +23,37 @@ MD = os.path.join(ANALYSIS, "diag_2x2.md")
 N_BINS = 20
 TOPQ = 90            # top-10% = >= 90th percentile
 LAYERS = ["math", "style", "other", "answer_span"]
+CAT4 = ["math", "style", "other", "structural"]
+MASS_MIN = 0.5      # corruption total mass (nats) below this -> corruption-null
+BIG_TOK = 0.05      # per-token corruption threshold for the ">0.05 token" count
+_STRUCT_RE = re.compile(r"\*\*|-{3,}|#{2,}|\bStep\b|\bSection\b|\bPart\b|\bChapter\b|\bCase\b", re.I)
+
+
+def corruption_mass(r):
+    return float(np.asarray(r["jsd_corruption"], float).mean(0).sum())
+
+
+def n_big_tokens(r):
+    return int((np.asarray(r["jsd_corruption"], float).mean(0) > BIG_TOK).sum())
+
+
+def is_null(r):
+    return corruption_mass(r) < MASS_MIN
+
+
+def relabel_struct(cats, tokens):
+    return ["structural" if _STRUCT_RE.search(t) else c for c, t in zip(cats, tokens)]
+
+
+def last_span_start(span):
+    idxs = [i for i, v in enumerate(span) if v]
+    if not idxs:
+        return None
+    s = set(idxs)
+    start = idxs[-1]
+    while start - 1 in s:
+        start -= 1
+    return start
 
 
 def load_cw():
@@ -98,6 +130,8 @@ def _spearman(x, y):
 def stability(recs):
     jac, spr = [], []
     for r in recs:
+        if is_null(r):
+            continue
         jc = np.asarray(r["jsd_corruption"], dtype=float)   # [3, T]
         if jc.shape[0] < 2 or jc.shape[1] < 10:
             continue
@@ -118,8 +152,17 @@ def stability(recs):
 # (c) gate A  (correct): divergence mass outside corruption-sensitive tokens
 # ---------------------------------------------------------------------------
 def gate_A(correct):
+    """insensitive-share of teacher-student divergence, plus a category breakdown
+    (math/style/other/structural) and a privilege x drift 2x2 mass table.
+    Excludes corruption-null rollouts."""
     sens_ts, insens_ts, insens_frac = [], [], []
+    cat_mass = {c: 0.0 for c in CAT4}          # insensitive jsd_ts mass by category
+    pd_mass = {"sens_hidrift": 0.0, "sens_lodrift": 0.0,
+               "insens_hidrift": 0.0, "insens_lodrift": 0.0}
+    used = 0
     for r in correct:
+        if is_null(r):
+            continue
         jcm = jsd_corr_mean(r)
         jts = _arr(r, "jsd_teacher_student")
         if len(jcm) < 10:
@@ -128,20 +171,94 @@ def gate_A(correct):
         sens = jcm >= thr
         if sens.sum() == 0 or (~sens).sum() == 0:
             continue
+        used += 1
         sens_ts.append(jts[sens].mean())
         insens_ts.append(jts[~sens].mean())
         tot = jts.sum()
-        insens_frac.append(jts[~sens].sum() / tot if tot else np.nan)
-    return (np.array(sens_ts), np.array(insens_ts),
-            np.array([f for f in insens_frac if not np.isnan(f)]))
+        if tot > 0:
+            insens_frac.append(jts[~sens].sum() / tot)
+        cats = relabel_struct(r["categories"], r["tokens"])
+        for i in np.where(~sens)[0]:
+            c = cats[i] if cats[i] in CAT4 else "other"
+            cat_mass[c] += jts[i]
+        if "jsd_drift" in r:
+            jdr = _arr(r, "jsd_drift")
+            hi = jdr >= np.percentile(jdr, TOPQ)
+            pd_mass["sens_hidrift"] += jts[sens & hi].sum()
+            pd_mass["sens_lodrift"] += jts[sens & ~hi].sum()
+            pd_mass["insens_hidrift"] += jts[~sens & hi].sum()
+            pd_mass["insens_lodrift"] += jts[~sens & ~hi].sum()
+    return {"sens_ts": np.array(sens_ts), "insens_ts": np.array(insens_ts),
+            "insens_frac": np.array(insens_frac), "cat_mass": cat_mass,
+            "pd_mass": pd_mass, "used": used}
+
+
+def gate_D_null(recs):
+    n = len(recs)
+    null = sum(1 for r in recs if is_null(r))
+    return null, n
+
+
+def commit_point(correct):
+    """Distance (tokens) of the top-5 corruption-JSD tokens from the start of the
+    last answer segment. Negative => before the answer segment. Excludes null."""
+    dists = []
+    for r in correct:
+        if is_null(r):
+            continue
+        astart = last_span_start(r["answer_span"])
+        if astart is None:
+            continue
+        jcm = jsd_corr_mean(r)
+        for t in np.argsort(jcm)[-5:]:
+            dists.append(int(t) - astart)
+    return np.array(dists)
+
+
+def gate_A_crosstab(correct):
+    """Full privilege x drift x category mass table over teacher-student
+    divergence (correct, non-null). rows = category, cols = sens/insens x
+    hi/lo-drift. Values are fractions of total jsd_ts mass."""
+    cols = ["sens_hi", "sens_lo", "insens_hi", "insens_lo"]
+    tab = {c: {col: 0.0 for col in cols} for c in CAT4}
+    total = 0.0
+    for r in correct:
+        if is_null(r) or "jsd_drift" not in r:
+            continue
+        jcm = jsd_corr_mean(r)
+        jts = _arr(r, "jsd_teacher_student")
+        jdr = _arr(r, "jsd_drift")
+        if len(jcm) < 10:
+            continue
+        sens = jcm >= np.percentile(jcm, TOPQ)
+        hi = jdr >= np.percentile(jdr, TOPQ)
+        cats = relabel_struct(r["categories"], r["tokens"])
+        for i in range(len(jcm)):
+            c = cats[i] if cats[i] in CAT4 else "other"
+            col = ("sens_" if sens[i] else "insens_") + ("hi" if hi[i] else "lo")
+            tab[c][col] += jts[i]
+            total += jts[i]
+    return tab, total, cols
 
 
 # ---------------------------------------------------------------------------
 # (d) gate C  (wrong x student-wrong): correction-signal concentration on answer
 # ---------------------------------------------------------------------------
+REASONING_MIN = 20   # rollouts with fewer non-answer tokens => no-reasoning bucket
+
+
 def gate_C(wrong):
-    conc = []
+    """lift = (answer-span JSD mass fraction) / (answer-span token fraction).
+
+    lift>1 => correction signal is DENSER on the answer span than uniform.
+    Rollouts whose reasoning body (non-answer tokens) < REASONING_MIN are moved
+    to a no-reasoning sub-bucket and excluded from gate C.
+    """
+    lift, conc, spanfrac = [], [], []
+    n_usable = n_noreason = 0
     for r in wrong:
+        if is_null(r):
+            continue
         sw = r.get("jsd_corruption_studentwrong")
         if sw is None:
             continue
@@ -150,8 +267,19 @@ def gate_C(wrong):
         tot = sw.sum()
         if tot <= 0 or span.sum() == 0:
             continue
-        conc.append(sw[span].sum() / tot)
-    return np.array(conc)
+        n_usable += 1
+        if (r["T"] - int(span.sum())) < REASONING_MIN:
+            n_noreason += 1
+            continue
+        c = sw[span].sum() / tot
+        sf = span.sum() / r["T"]
+        conc.append(c)
+        spanfrac.append(sf)
+        lift.append(c / sf if sf > 0 else np.nan)
+    return {"lift": np.array([x for x in lift if not np.isnan(x)]),
+            "conc": np.array(conc), "spanfrac": np.array(spanfrac),
+            "n_usable": n_usable, "n_noreason": n_noreason,
+            "n_gateC": len(conc)}
 
 
 def _q(a):
@@ -211,28 +339,51 @@ def main():
                   os.path.join(ANALYSIS, "diag_2x2_position_wrong.png"))
 
     jac, spr = stability(correct + wrong)
-    sA, iA, fracA = gate_A(correct)
-    concC = gate_C(wrong)
+    gA = gate_A(correct)
+    gc = gate_C(wrong)
+    cp = commit_point(correct)
+    tab, tab_total, tab_cols = gate_A_crosstab(correct)
+    nc_null, nc = gate_D_null(correct)
+    nw_null, nw = gate_D_null(wrong)
+    mass_c = np.array([corruption_mass(r) for r in correct])
+    mass_w = np.array([corruption_mass(r) for r in wrong])
+    big_c = np.array([n_big_tokens(r) for r in correct])
+    big_w = np.array([n_big_tokens(r) for r in wrong])
 
     # gate-A figure
     fig, ax = plt.subplots(figsize=(7, 4))
-    ax.hist(iA, bins=20, alpha=0.6, label="insensitive tokens", color="#1f77b4")
-    ax.hist(sA, bins=20, alpha=0.6, label="corruption-sensitive tokens", color="#d62728")
-    ax.set_title("Gate A: teacher-student JSD, sensitive vs insensitive")
+    ax.hist(gA["insens_ts"], bins=20, alpha=0.6, label="insensitive tokens", color="#1f77b4")
+    ax.hist(gA["sens_ts"], bins=20, alpha=0.6, label="corruption-sensitive tokens", color="#d62728")
+    ax.set_title("Gate A: teacher-student JSD, sensitive vs insensitive (non-null)")
     ax.set_xlabel("mean JSD(T_S, S) per rollout (nats)")
     ax.legend()
     ax.grid(True, alpha=0.3)
     fig.tight_layout()
     fig.savefig(os.path.join(ANALYSIS, "diag_2x2_gateA.png"), dpi=120)
     plt.close(fig)
-    # gate-C figure
+    # gate-C figure (lift)
     fig, ax = plt.subplots(figsize=(7, 4))
-    ax.hist(concC, bins=20, color="#2ca02c")
-    ax.set_title("Gate C: correction-signal concentration on answer span")
-    ax.set_xlabel("fraction of JSD(T_S, T_S̃_studentwrong) mass on the answer span")
+    if len(gc["lift"]):
+        ax.hist(np.clip(gc["lift"], 0, 40), bins=20, color="#2ca02c")
+    ax.axvline(1.0, ls="--", color="k", lw=1, label="lift=1 (uniform)")
+    ax.set_title("Gate C: correction-signal lift on answer span (wrong x student-wrong)")
+    ax.set_xlabel("lift = (answer-span JSD mass frac) / (answer-span token frac)")
+    ax.legend()
     ax.grid(True, alpha=0.3)
     fig.tight_layout()
     fig.savefig(os.path.join(ANALYSIS, "diag_2x2_gateC.png"), dpi=120)
+    plt.close(fig)
+    # commit-point figure
+    fig, ax = plt.subplots(figsize=(7, 4))
+    if len(cp):
+        ax.hist(np.clip(cp, -200, 200), bins=40, color="#9467bd")
+    ax.axvline(0, ls="--", color="k", lw=1, label="answer-segment start")
+    ax.set_title("Commit point: top-5 corruption tokens vs answer-segment start (correct)")
+    ax.set_xlabel("token distance (negative = before the answer segment)")
+    ax.legend()
+    ax.grid(True, alpha=0.3)
+    fig.tight_layout()
+    fig.savefig(os.path.join(ANALYSIS, "diag_2x2_commit.png"), dpi=120)
     plt.close(fig)
 
     trunc = analyze_truncated()
@@ -240,28 +391,74 @@ def main():
     L = []
     A = L.append
     A("# 2x2 corruption diagnostic (stage 1)\n")
-    A("Per-token teacher-corruption sensitivity `JSD(T_S, T_S̃)` and "
-      "teacher-student divergence `JSD(T_S, S)` on ckpt-50 rollouts "
-      "(`probes/run_2x2.py`). correct/wrong from the 4096 collection.\n")
+    A("Per-token teacher-corruption sensitivity `JSD(T_S, T_S̃)`, teacher-student "
+      "divergence `JSD(T_S, S)`, and LoRA drift `JSD(S, S0)` (S0 = base on the "
+      "student prompt) on ckpt-50 rollouts (`probes/run_2x2.py`). correct/wrong "
+      "from the 4096 collection.\n")
     A(f"- correct rollouts: {len(correct)} | wrong rollouts: {len(wrong)}\n")
 
-    A("## (b) corruption stability (3 corrupted versions)\n")
+    A("## Quality floor & corruption-null (gate D read)\n")
+    A(f"- corruption total mass (nats), correct: {_q(mass_c)}")
+    A(f"- corruption total mass (nats), wrong: {_q(mass_w)}")
+    A(f"- tokens with per-token corruption > {BIG_TOK}, correct: {_q(big_c)}")
+    A(f"- tokens with per-token corruption > {BIG_TOK}, wrong: {_q(big_w)}")
+    A(f"- **corruption-null** (total mass < {MASS_MIN} nats), **correct**: "
+      f"{nc_null}/{nc} ({100*nc_null/nc if nc else 0:.1f}%)")
+    A(f"- **corruption-null**, **wrong**: {nw_null}/{nw} "
+      f"({100*nw_null/nw if nw else 0:.1f}%)")
+    A("  - Gate D read: a high corruption-null fraction = the teacher barely "
+      "reacts to the answer being corrupted, i.e. the privilege/leakage axis is "
+      "weak at this scale. All concentration/lift metrics below EXCLUDE null "
+      "rollouts.\n")
+
+    A("## (b) corruption stability (3 corrupted versions, non-null)\n")
     A(f"- top-10% token-set **Jaccard** (pairwise): {_q(jac)}")
     A(f"- token-level **Spearman** (pairwise jsd_corruption): {_q(spr)}\n")
 
-    A("## (c) Gate A — divergence mass outside corruption-sensitive tokens (correct)\n")
-    A(f"- mean JSD(T_S,S) on **corruption-sensitive** (top-10%) tokens: {_q(sA)}")
-    A(f"- mean JSD(T_S,S) on **insensitive** tokens: {_q(iA)}")
-    A(f"- **insensitive tokens' share of total teacher-student divergence mass**: {_q(fracA)}")
-    A("  - Read: a high insensitive-share means substantial student-teacher "
-      "divergence lives OUTSIDE copying positions (competence-driven), which "
-      "argues for a non-trivial correct-branch treatment; a low share means "
-      "divergence is mostly at corruption-sensitive (privilege) tokens.\n")
+    A("## (c) Gate A — divergence outside corruption-sensitive tokens (correct, non-null)\n")
+    A(f"- mean JSD(T_S,S) on corruption-sensitive (top-10%) tokens: {_q(gA['sens_ts'])}")
+    A(f"- mean JSD(T_S,S) on insensitive tokens: {_q(gA['insens_ts'])}")
+    A(f"- **insensitive tokens' share of total teacher-student divergence**: {_q(gA['insens_frac'])}\n")
+    A("### Three-way mass table: privilege x drift x category")
+    A("Fraction of total teacher-student divergence mass (%, correct non-null). "
+      "Columns: sensitive/insensitive (privilege) x hi/lo LoRA-drift.")
+    A("| category | sens·hi-drift | sens·lo-drift | insens·hi-drift | insens·lo-drift | row |")
+    A("|---|--:|--:|--:|--:|--:|")
+    for c in CAT4:
+        vals = [tab[c][col] for col in tab_cols]
+        row = sum(vals)
+        cells = " | ".join(f"{100*v/tab_total if tab_total else 0:.1f}" for v in vals)
+        A(f"| {c} | {cells} | {100*row/tab_total if tab_total else 0:.1f} |")
+    colsum = [sum(tab[c][col] for c in CAT4) for col in tab_cols]
+    A(f"| **col** | " + " | ".join(f"{100*v/tab_total if tab_total else 0:.1f}" for v in colsum) + " | 100 |")
+    A("  - Read: mass in **insensitive x any-drift** = divergence not explained "
+      "by privilege (copying); mass in **hi-drift** columns = attributable to "
+      "LoRA drift; the **structural** row isolates markup/section tokens.\n")
 
-    A("## (d) Gate C — correction-signal concentration on answer span (wrong x student-wrong)\n")
-    A(f"- concentration (answer-span JSD mass / total): {_q(concC)}")
-    A("  - Compares against the prior observation that the correction signal "
-      "sits almost entirely at the answer position. concentration→1 supports it.\n")
+    A("## (d) Gate C — correction-signal LIFT on answer span (wrong x student-wrong, non-null)\n")
+    nr_frac = (100 * gc["n_noreason"] / gc["n_usable"]) if gc["n_usable"] else 0
+    A(f"- no-reasoning sub-bucket (reasoning body < {REASONING_MIN} tokens, "
+      f"excluded): {gc['n_noreason']}/{gc['n_usable']} ({nr_frac:.1f}%)")
+    A(f"- **lift** (answer-span JSD-mass frac / answer-span token frac), "
+      f"n={gc['n_gateC']}: {_q(gc['lift'])}")
+    A(f"- raw concentration (answer-span JSD mass / total): {_q(gc['conc'])}")
+    A(f"- answer-span token fraction: {_q(gc['spanfrac'])}")
+    A("  - lift>1 = correction signal DENSER on the answer span than uniform. "
+      "See `samples/prefix_failure_micro.html` (pid=19) for the token-level "
+      "mechanism.\n")
+
+    A("## Commit-point hypothesis (correct, non-null)\n")
+    if len(cp):
+        within = 100 * np.mean((cp >= -30) & (cp <= 0))
+        before = 100 * np.mean(cp < 0)
+        A(f"- top-5 corruption-token distance from the answer-segment start "
+          f"(tokens): {_q(cp)}")
+        A(f"- fraction in a [-30, 0] pre-answer window: {within:.1f}%; "
+          f"fraction strictly before the answer segment: {before:.1f}%")
+        A("  - If the top corruption tokens cluster just before the final answer "
+          "segment, the teacher 'commits' to the answer in a small window — the "
+          "commit-point mechanism. See `diag_2x2_commit.png` and 3 HTML stamps "
+          "`samples/commit_point_*.html`.\n")
 
     A("## (a)/(e) position curves\n")
     A("- `diag_2x2_position_correct.png` (top-left), "
@@ -270,18 +467,21 @@ def main():
 
     if trunc:
         A("## Truncated bucket (1024 collection, no corruption)\n")
-        A(f"- n={trunc['n']} truncated rollouts; teacher-student divergence "
-          f"position curve + V(t) bundle in `diag_truncated.png`.")
-        A(f"- V(end) on truncated: mean={trunc['v_end_mean']:.3f} "
-          f"median={trunc['v_end_median']:.3f} nats — the training signal on the "
-          f"dominant (69% @1024) truncated bucket, which the verifier cannot "
-          f"score.\n")
+        A(f"- n={trunc['n']} truncated rollouts; JSD(T_S,S) position curve + V(t) "
+          f"bundle in `diag_truncated.png`.")
+        A(f"- V(end): mean={trunc['v_end_mean']:.3f} median={trunc['v_end_median']:.3f} "
+          f"nats — training signal on the dominant (69%@1024) truncated bucket "
+          f"the verifier cannot score.")
+        A("- HTML stamps mark the most-negative delta_V checkpoint segment "
+          "(delta_V is broadcast at checkpoint-segment granularity).\n")
 
     with open(MD, "w", encoding="utf-8") as f:
         f.write("\n".join(L))
     print(f"wrote {MD}")
-    print("gateA insensitive-share:", _q(fracA))
-    print("gateC concentration:", _q(concC))
+    print(f"corruption-null: correct {nc_null}/{nc}, wrong {nw_null}/{nw}")
+    print("gateA insensitive-share:", _q(gA["insens_frac"]))
+    print(f"gateC no-reasoning: {gc['n_noreason']}/{gc['n_usable']} | lift:", _q(gc["lift"]))
+    print("commit-point dist:", _q(cp))
     print("stability Jaccard:", _q(jac))
 
 
