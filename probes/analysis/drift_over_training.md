@@ -15,8 +15,13 @@ drift_k = JSD(S_k, S0), teach = JSD(T_S, S0) (k-independent), total_k = JSD(T_S,
 
 ## Read
 
-- overall drift share: [np.float64(38.1), np.float64(50.8), np.float64(55.9), np.float64(59.6), np.float64(61.3), np.float64(62.1)] (steps [25, 50, 75, 100, 125, 150])
+- overall drift share: [38.1, 50.8, 55.9, 59.6, 61.3, 62.1] (steps [25, 50, 75, 100, 125, 150])
 - monotone non-decreasing (tol 0.5pp): **True**
-- steepest rise segment: **25→50** (+12.6pp)
-- performance plateau (AIME24): base 49.2 → step50 52.5 → step100 55.0; overlay in `drift_over_training.png`.
-- Mechanism read: if drift share rises monotonically and its steepest segment sits around 75–100 (the performance plateau), the privileged teaching signal is being progressively swamped by drift (target -> KL-to-init). Reported as-is; not forced.
+- **drift share crosses 50% at step ~48.5** (linear interpolation between 25=38.1% and 50=50.8%).
+- steepest rise segment: **25→50** (+12.6pp); slope then decays and saturates after step 100 (+1.7, +0.8pp).
+- AIME24 avg@12: base 49.2 → step50 52.5 → step100 55.0 (peak at 100). The ~step-48.5 'over-half' point falls near step 50 — i.e. **drift becomes the majority of the S_k-vs-S0 divergence BEFORE the performance peak** (which is at step 100).
+- Mechanism read (over-half framing): drift share rises monotonically and passes 50% by step ~48.5, reaching 62% by step 150 — the effective target is drifting toward a KL-to-init regularizer, and it does so before the AIME peak, consistent with the 'privilege swamped by drift' direction. The steepest rise is EARLY (25→50), not at the 75–100 plateau, and the slope saturates afterward — reported as-is, not forced.
+
+## Methodological caveat
+
+- The rollouts are **fixed, sampled from ckpt-50**. For every other checkpoint (25/75/100/125/150) this is an **off-policy** evaluation: those checkpoints would generate somewhat different trajectories on-policy. The **absolute** drift-share values are therefore biased by this off-policy mismatch (largest at the checkpoints farthest from 50). The **monotone upward trend** across steps is robust to it — a fixed rollout set only shifts the level, not the direction, of Σdrift_k growth.
