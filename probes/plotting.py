@@ -33,6 +33,25 @@ def plot_position_curve(curve: dict, path: str, title: str = "",
     return path
 
 
+def plot_vt_curves(curves, path: str, title: str = "V(t) answer likelihood",
+                   ylabel: str = "V(t) = log p(answer | prefix)  (nats)") -> str:
+    """Plot several V(t) curves. `curves`: list of (positions, V, label[, style])."""
+    fig, ax = plt.subplots(figsize=(8, 4.5))
+    for item in curves:
+        pos, V, label = item[0], item[1], item[2]
+        style = item[3] if len(item) > 3 else "-o"
+        ax.plot(pos, V, style, label=label, markersize=4)
+    ax.set_xlabel("rollout prefix length t (tokens)")
+    ax.set_ylabel(ylabel)
+    ax.set_title(title)
+    ax.grid(True, alpha=0.3)
+    ax.legend(fontsize=9)
+    fig.tight_layout()
+    fig.savefig(path, dpi=120)
+    plt.close(fig)
+    return path
+
+
 def plot_group_stats(stats: dict, path: str, title: str = "",
                      ylabel: str = "per-token divergence (nats)") -> str:
     """Bar chart of per-category mean with IQR error bars (from `group_stats`)."""

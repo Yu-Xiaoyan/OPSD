@@ -1,0 +1,18 @@
+{
+  "max_tokens": 1024,
+  "n": 200,
+  "buckets": {
+    "wrong": 20,
+    "truncated": 138,
+    "correct": 42
+  },
+  "gen_params": {
+    "temperature": 1.1,
+    "top_p": 0.95,
+    "top_k": 20,
+    "student_thinking": false,
+    "seed": 1234,
+    "max_tokens": 1024
+  },
+  "source_checkpoint": "/home/xiaoyan.yu/opsd_outputs/qwen31b_repro_3xh200_gb30/checkpoint-50"
+}
