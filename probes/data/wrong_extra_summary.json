@@ -1,0 +1,18 @@
+{
+  "kept_wrong": 150,
+  "total_sampled": 700,
+  "buckets": {
+    "correct": 362,
+    "wrong": 264,
+    "truncated": 74
+  },
+  "start_id": 200,
+  "gen_params": {
+    "temperature": 1.1,
+    "top_p": 0.95,
+    "top_k": 20,
+    "max_tokens": 4096,
+    "student_thinking": false,
+    "seed": 1234
+  }
+}

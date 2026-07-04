@@ -1,0 +1,41 @@
+#!/bin/bash
+#PBS -N collect_wrong
+#PBS -P ds_ccds_wei.lu
+#PBS -q gpu_ded
+#PBS -l select=1:ncpus=6:ngpus=1
+#PBS -l walltime=01:30:00
+#PBS -j oe
+
+set -uo pipefail
+
+module purge
+module load anaconda/2025
+module load cuda/13.1
+eval "$(/usr/local/anaconda2025/bin/conda shell.bash hook)"
+conda activate opsd
+
+cd /home/xiaoyan.yu/projects/OPSD
+export PYTHONUNBUFFERED=1
+export HF_HUB_OFFLINE=1
+export NCCL_P2P_DISABLE=1
+export DS_SKIP_CUDA_CHECK=1
+unset CPATH C_INCLUDE_PATH CPLUS_INCLUDE_PATH
+
+if echo "${CUDA_VISIBLE_DEVICES:-}" | grep -q "GPU-"; then
+    GPU_COUNT=$(echo "${CUDA_VISIBLE_DEVICES}" | tr ',' '\n' | wc -l)
+    CUDA_VISIBLE_DEVICES=$(seq -s, 0 $((GPU_COUNT - 1)))
+    export CUDA_VISIBLE_DEVICES
+fi
+
+mkdir -p pbs/logs
+exec > "pbs/logs/collect_wrong.${PBS_JOBID}.log" 2>&1
+
+echo "Job: ${PBS_JOBID}  Node: $(hostname)  GPU: ${CUDA_VISIBLE_DEVICES:-unset}"
+nvidia-smi -L
+
+echo "=== collect 150 wrong-with-boxed @4096 from unused problems (id>=200) ==="
+~/.conda/envs/opsd/bin/python probes/collect_wrong.py --start_id 200 --n_probe 700 --target 150
+rc=$?
+echo "=== collect exit code: ${rc} ==="
+echo "=== DONE ==="
+exit $rc
