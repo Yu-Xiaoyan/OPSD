@@ -42,7 +42,20 @@ class GateConfig:
     w_trunc: float = 0.7          # truncated-bucket base weight
     tau: float = 1.0              # softness of the ΔV sigmoid
     direction: float = -1.0       # -1: down-weight high-divergence (V-drop) tokens
-    lambda_unlik: float = 0.0     # v1 ablation: hard t* unlikelihood (default OFF)
+    # v1 ablation ONLY; NOT implemented in v0 synth_weights. Gate-B verdict
+    # (2026-07-05, gate_b.md): t* ±1 hit was 0/10 -> hard unlikelihood degraded
+    # to unified ΔV soft weighting. Must stay 0 in v0; a nonzero value is a
+    # misconfiguration and raises (see __post_init__) rather than being silently
+    # ignored.
+    lambda_unlik: float = 0.0
+
+    def __post_init__(self):
+        if self.lambda_unlik != 0.0:
+            raise NotImplementedError(
+                "hard t* unlikelihood is a v1 ablation and is NOT implemented in "
+                "v0 (gate-B verdict 2026-07-05: t* ±1 hit 0/10 -> wrong bucket = "
+                "unified ΔV soft weighting). Keep lambda_unlik=0; do not train a "
+                "gate-B-retired branch.")
 
 
 def bucket_batch(sampled_token_ids, shifted_labels, gt_answers, tokenizer,
