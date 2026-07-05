@@ -91,9 +91,21 @@ split cleanly attributes the dynamic feedback loop.
 | generation | **2048** / 300 steps | = paper (Table 6) | longer than repo (1024) |
 | teacher | **fixed** initial policy | = paper (kept) | = repo |
 
-LoRA is retained (paper trains the same way per its setup; any residual delta is
-noted here, not silently assumed away). **Science question: does the version
-RLSD attacked leak on our model/data?**
+LoRA is retained (paper trains the same way). **LoRA is therefore NOT a
+suppressor candidate**: it is common to paper and repo, and the RLSD-attacked
+paper version has LoRA yet leaks, so it cannot explain the paper-vs-repo
+difference. The suppressor-candidate set is the four repo deltas (clip, guard,
+thinking, length) plus the absent dynamic teacher (Tier 2), not LoRA.
+
+**Batch note.** Per-device micro-batch is 2 (down from repro's 5, for the 2048
+memory budget) but grad-accum is raised to 5, so the effective batch is 2×5×3 =
+**30 — identical to the repro's 5×2×3 = 30**. Only the micro-batch differs
+(math-equivalent for LoRA; it changes memory/speed, not the optimizer step). And
+even if the effective batch did differ, leakage is a *behavioral-emergence*
+observation, not a performance benchmark, so a batch delta would not confound a
+leak/no-leak read.
+
+**Science question: does the version RLSD attacked leak on our model/data?**
 
 ### Tier 2 — dynamic-teacher variant (aggressive probe, BEYOND paper)
 `scripts/run_tier2_dynamic.sh`, run_config `qwen31b_tier2_dynamic`. **Exactly

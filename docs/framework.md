@@ -243,8 +243,11 @@ n 很小，corruption-null 排除后 gate-C usable 仅个位数）。部分双�
 几乎无反应**；去指令 guard 消融行为无差异（early-clean 1.28% vs 0.88%）。
 **8B 补充**：行为级 leakage 8B ≈ 1.7B ≈ 0（`gate_d_arbitration.md` 同口径 ckpt-50
 0.3 rollouts：kw 0.5%=0.5%、early-clean 3.8% vs 4.4%、strong 0% vs 0.6%[1 条]），
-**行为级"随容量增长"假说不成立**。三个候选抑制器并列：**(a) 模型容量**、
-**(b) prompt guard + clip 缓解**、**(c) LoRA 低秩**。
+**行为级"随容量增长"假说不成立**。抑制器候选集**收敛为仓库相对 paper 的四项
+偏离**（clip / guard 强化 / thinking 关闭 / 生成缩短）**+ 动态 teacher 缺失**
+（fixed-teacher 保护，由 Tier 2 探测）。**LoRA 移出候选**——paper 原设即含 LoRA、
+RLSD 攻击的 paper 版含 LoRA 仍泄露，故 LoRA 不能解释 repo 与 paper 的泄露差异
+（paper/repo 共有，非差异源）。模型容量（原候选之一）8B 证据已弱化其单独主导。
 - **8B 分布级裁决已回填**（`gate_d_arbitration.md`，同 cap=1024 口径）：8B 2×2
   的 **corruption-null 并未随规模大幅下降** —— correct 52.3%→**58.1%（反升）**、
   wrong 77.5%→**66.7%（小降但仍主导）**，corruption mass 8B 反而更低（correct
@@ -256,8 +259,8 @@ n 很小，corruption-null 排除后 gate-C usable 仅个位数）。部分双�
   分布级 corruption-null 主导，未随规模质变）。→ **主实验战场选 1.7B**（8B 不带来
   leakage 轴质变，省算力）；**leakage 轴在论文中戏份收敛为"负结果 → 动机"**：行为
   面无可用 ground truth、分布面 teacher 多数不 copy privileged 答案，正是 corruption/
-  JSD 分布探针（而非行为探针）的立论依据。抑制器 (a)/(b)/(c) 三者并列，8B 证据
-  弱化 (a) 单独主导（容量 4.7× 未质变）。
+  JSD 分布探针（而非行为探针）的立论依据。抑制器归因交由桥接实验（四项 repo
+  偏离 + 动态 teacher），LoRA 已移出候选（paper/repo 共有），8B 弱化容量单独主导。
 - **泄露桥接实验（版本谱系评估，`version_genealogy.md`）**：论文对照（arXiv
   2601.18734）确认 repo 相对 paper **新增 clip、强化 guard、关闭 student thinking、
   缩短生成**四项偏离，**fixed-teacher 为 paper 原有**（非静默修复）。重构为**两层
