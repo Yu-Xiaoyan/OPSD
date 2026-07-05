@@ -225,9 +225,16 @@ token 只承载 ~30% 的分歧质量，insensitive×any-drift = 69.9%**（非 co
 ### 门 C 裁决（修正信号集中度）
 **claim 软化**：门 C 为**弱信号 + 双峰**（`diag_2x2.md`：lift median ≈3.3 但
 n 很小，corruption-null 排除后 gate-C usable 仅个位数）。部分双峰为退化样本
-伪影。**最终 claim = "student-wrong 修正信号的集中度呈双峰、与出错位置相关，
-待 3d 扩量重审验证"**，n 与口径（lift、质量下限、no-reasoning 排除）如实标注，
-不做超样本量的强断言。pid=19 机制标本（首分叉集中、不穿透错误前缀）作定性佐证。
+伪影。**最终 claim = "student-wrong 修正信号的集中度呈双峰、与出错位置相关"**，n 与口径
+（lift、质量下限、no-reasoning 排除）如实标注，不做超样本量的强断言。pid=19 机制
+标本（首分叉集中、不穿透错误前缀）作定性佐证。
+- **3d v2 重审已回填**（`gate_c_rereview.md`）：v2 重分桶从 wrong 桶移除 9 条
+  format-recovered pseudo 后，两腐化轴 lift **均上升**（studentwrong median
+  3.30→6.74、irrelevant 2.21→4.21）→ **pseudo 是稀释而非驱动** gate C 信号，剩余
+  true-wrong 的修正信号在答案位置更集中，弱信号 claim 方向稳健。**但 n 未扩量**
+  （v2 usable 仍仅 n=6：corruption-null 占 77.5%、no-reasoning 再排除），故维持
+  "弱信号、不超样本强断言"的口径；扩量需更大 wrong 采集（v1 规模所限）。
+  corruption-null 占比 v1/v2 同为 77.5%（pseudo 不落在 null，移除不改 null 结构）。
 
 ### 门 D 裁决（leakage 轴活跃度与模型规模）
 **1.7B 侧 leakage 轴疲软**（三条互证）：行为级近零命中（关键词 0.27%、答案
