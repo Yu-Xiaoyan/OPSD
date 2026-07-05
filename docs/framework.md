@@ -198,13 +198,22 @@ token 只承载 ~30% 的分歧质量，insensitive×any-drift = 69.9%**（非 co
 三者进消融。**
 
 ### 门 B 裁决（wrong 分支定位机制）
-**[PENDING — 待 3c 门 B 终审回填]**：clear 集（n=10，双版本）V(t) 命中表 +
-代理阈值 δ（clear/diffuse 最负段 ΔV 分布中点）+ 格式鲁棒性 AUC。
-**覆盖面结构已由标注数据写死**（不待命中率）：wrong 分支 = **分层门控** ——
-clear 型（~20%）用 t\* 硬机制（命中 ≥7/10 则保留 t\* 处 unlikelihood 项，否则
-该项退化为软加权）、diffuse 型（~41%）用 ΔV 软加权、pseudo（经 verifier v2
-已重分桶离开 wrong 桶）。**训练期无人工 verdict，分层由代理规则近似**：V(t)
-最负段 ΔV < δ → 按 clear 处理，否则按 diffuse。δ 从 3c 的 ΔV 分布图定。
+**3c 终审已回填**（`gate_b.md`，1.7B ckpt-50，clear n=10 双版本）：
+- **命中率 0/10（±1 步）**：V(t) 最负段与人工 t\* **相关但精度不足** —— 约 4/10
+  落在 ±5 步内（402: t\*99/V97、429: 68/65、347: 90/95、380: 30/26），其余偏移大
+  （441: 28→V85、466: 113→V37；post-error collapse / 早降各半）。
+- **代理阈值 δ = -7.63**，但 **clear/diffuse 最负段 ΔV 分布几乎重叠**（median
+  -7.28 vs -7.97）→ δ 区分 clear/diffuse **判别力弱**（`gate_b_dv_dist.png`）。
+- **格式鲁棒性 AUC(pseudo vs true_wrong) = 0.700 < 0.75**（强线未达），但方向对
+  （pseudo V(end)=-15.8 明显高于 true_wrong=-25.3，接近 correct -10.0）→ V(t) 对
+  格式噪声**部分**鲁棒；AUC(correct vs true_wrong)=0.779（cf. 旧 0.812）。
+- **裁决**：t\* 硬定位精度不足 ±1（命中 <7/10）→ **clear 型的 t\* 处 unlikelihood
+  项退化为 ΔV 软加权**，**v0 wrong 分支统一 ΔV 软加权**（不用硬 t\* 定位）；
+  V(t) **主用相对变化 ΔV**（骤降定位 + 过程 advantage），**降低对 V(end) 绝对值
+  的依赖**（AUC 0.700 表明绝对值部分含格式信号）。代理分层 δ 保留但标注判别力弱，
+  训练期 wrong 桶近似统一软加权。
+- **v0 修订记录（2026-07-05）**：原设计的"clear 型 t\* 硬 unlikelihood"因 ±1 命中
+  0/10 退化为 ΔV 软加权；这是本节冻结后的第一条显式修订。
 
 ### 门 C 裁决（修正信号集中度）
 **claim 软化**：门 C 为**弱信号 + 双峰**（`diag_2x2.md`：lift median ≈3.3 但
@@ -227,9 +236,9 @@ n 很小，corruption-null 排除后 gate-C usable 仅个位数）。部分双�
 - **三桶分诊**（rollout 生成后即时，零成本 verifier + V(t)）：
   - 训练长度（1024）下 **verifier 覆盖 31%**（correct+wrong-with-boxed）；
     **V(t) 主分诊剩余 69%**（含 truncated），verifier 失效处 V(t) 打分。
-- **wrong 桶**：代理规则分层 → clear 型 t\* 前正常蒸馏、t\* 处对 student 实际
-  token 施 unlikelihood（系数 λ_unlik，默认 0.1）、t\* 后 mask/降权；diffuse 型
-  用 `w ∝ σ(ΔV/τ)` 软加权。
+- **wrong 桶**：门 B 裁决后**统一 ΔV 软加权** `w ∝ σ(ΔV/τ)`（V(t) 骤降处降权、
+  骤降前正常蒸馏）。原"clear 型 t\* 处 unlikelihood"因 ±1 命中 0/10 退化为软加权；
+  t\* 硬 unlikelihood 项作为 **v1 消融**保留（默认关，λ_unlik=0）。
 - **correct 桶**：门 A 三选一（v0 默认门控轻蒸馏）。
 - **truncated 桶**：按 V(t) 走势二分 —— 健康段（V(end) 高分位）照 wrong 桶 t\*
   前逻辑蒸馏，恶化段（V(end) 低分位）照 t\* 后逻辑降权。
