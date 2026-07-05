@@ -181,6 +181,66 @@ prompt 下为干净负结果，见 `probes/analysis/leakage_over_training.md`）
 
 ---
 
+## 阶段 1 裁决与 v0 冻结
+
+> **v0 设计冻结于本节。此后任何改动需在本节留显式修订记录（日期 + 变更 + 依据）。**
+> 数据出处：`probes/analysis/diag_2x2.md`（2×2 诊断）、`leakage_over_training.md`
+> （行为级泄露）、`gate_b.md`（V(t) 终审）、`drift_over_training.md`（漂移）、
+> `tstar_annotations.jsonl`（49 条人工审计 = verifier ground truth）。
+
+### 门 A 裁决（正确分支）
+正确轨迹的师生分歧三分账（correct 非 null，`diag_2x2.md`）：**腐蚀敏感（特权）
+token 只承载 ~30% 的分歧质量，insensitive×any-drift = 69.9%**（非 copying）；
+其中 **hi-drift 列 41.1%** 可归因 LoRA 漂移，最大格 **insens×lo-drift×other =
+34.1%** 是 competence-driven 核心；style/structural 单列（各 ~7%/13%）。
+→ **正确分支 = 可配置 `{none / EMA-baseline 似然强化 / 门控轻蒸馏}`，v0 默认
+门控轻蒸馏（结构 token 降权 ×（腐蚀门开启时）corruption-sensitive 降权），
+三者进消融。**
+
+### 门 B 裁决（wrong 分支定位机制）
+**[PENDING — 待 3c 门 B 终审回填]**：clear 集（n=10，双版本）V(t) 命中表 +
+代理阈值 δ（clear/diffuse 最负段 ΔV 分布中点）+ 格式鲁棒性 AUC。
+**覆盖面结构已由标注数据写死**（不待命中率）：wrong 分支 = **分层门控** ——
+clear 型（~20%）用 t\* 硬机制（命中 ≥7/10 则保留 t\* 处 unlikelihood 项，否则
+该项退化为软加权）、diffuse 型（~41%）用 ΔV 软加权、pseudo（经 verifier v2
+已重分桶离开 wrong 桶）。**训练期无人工 verdict，分层由代理规则近似**：V(t)
+最负段 ΔV < δ → 按 clear 处理，否则按 diffuse。δ 从 3c 的 ΔV 分布图定。
+
+### 门 C 裁决（修正信号集中度）
+**claim 软化**：门 C 为**弱信号 + 双峰**（`diag_2x2.md`：lift median ≈3.3 但
+n 很小，corruption-null 排除后 gate-C usable 仅个位数）。部分双峰为退化样本
+伪影。**最终 claim = "student-wrong 修正信号的集中度呈双峰、与出错位置相关，
+待 3d 扩量重审验证"**，n 与口径（lift、质量下限、no-reasoning 排除）如实标注，
+不做超样本量的强断言。pid=19 机制标本（首分叉集中、不穿透错误前缀）作定性佐证。
+
+### 门 D 裁决（leakage 轴活跃度与模型规模）
+**1.7B 侧 leakage 轴疲软**（三条互证）：行为级近零命中（关键词 0.27%、答案
+早现 clean 1.28%，`leakage_over_training.md`）；**分布级 corruption-null 占比高
+（correct 52% / wrong 78%，`diag_2x2.md`）—— 过半轨迹 teacher 对答案被腐蚀
+几乎无反应**；去指令 guard 消融行为无差异（early-clean 1.28% vs 0.88%）。
+**8B 补充**：行为级 leakage 8B ≈ 1.7B ≈ 0（8B kw 0.07%），**行为级"随容量增长"
+假说不成立**。三个候选抑制器并列：**(a) 模型容量**、**(b) prompt guard + clip
+缓解**、**(c) LoRA 低秩**。**[PENDING — 8B 分布级裁决]**：8B 2×2 的 corruption-null
+占比 vs 1.7B（若 8B 显著更低则支持容量假说）。
+
+### v0 loss 完整定义（冻结）
+- **三桶分诊**（rollout 生成后即时，零成本 verifier + V(t)）：
+  - 训练长度（1024）下 **verifier 覆盖 31%**（correct+wrong-with-boxed）；
+    **V(t) 主分诊剩余 69%**（含 truncated），verifier 失效处 V(t) 打分。
+- **wrong 桶**：代理规则分层 → clear 型 t\* 前正常蒸馏、t\* 处对 student 实际
+  token 施 unlikelihood（系数 λ_unlik，默认 0.1）、t\* 后 mask/降权；diffuse 型
+  用 `w ∝ σ(ΔV/τ)` 软加权。
+- **correct 桶**：门 A 三选一（v0 默认门控轻蒸馏）。
+- **truncated 桶**：按 V(t) 走势二分 —— 健康段（V(end) 高分位）照 wrong 桶 t\*
+  前逻辑蒸馏，恶化段（V(end) 低分位）照 t\* 后逻辑降权。
+- **训练期探针预算**：每条 rollout **≤3 次额外 forward**（实测基准 96.6ms/次，
+  峰值 4.63GB，`docs/archaeology.md` 复现节）——T_Ã 一次（腐蚀门，可关）+
+  V(t) 批处理若干短打分。禁止新增自回归采样。
+- **jsd_token_clip 兼具泄露抑制作用**（候选抑制器 b 的机制注释）：clip 封顶
+  teacher 高置信位置的**梯度贡献**，而 copying / privilege 位置恰是 teacher
+  置信最高处 → clip 隐式压制了泄露位置的训练信号。这可作为 **8B 上的一个
+  消融方向记录（clip on/off × 泄露强度），不排期**。
+
 ## v1 推迟项（明确不做，防止范围蔓延）
 
 - CoT teacher（`COT_Reason` 字段）
