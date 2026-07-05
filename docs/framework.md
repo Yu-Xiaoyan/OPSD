@@ -258,15 +258,17 @@ n 很小，corruption-null 排除后 gate-C usable 仅个位数）。部分双�
   面无可用 ground truth、分布面 teacher 多数不 copy privileged 答案，正是 corruption/
   JSD 分布探针（而非行为探针）的立论依据。抑制器 (a)/(b)/(c) 三者并列，8B 证据
   弱化 (a) 单独主导（容量 4.7× 未质变）。
-- **泄露桥接实验（版本谱系评估，`version_genealogy.md`）**：门 D 的三候选抑制器
-  与仓库相对 paper-OPSD 的**静默修复集**正交互证。论文对照（arXiv 2601.18734）
-  确认 repo 相对 paper **新增 clip、强化 guard、关闭 student thinking、缩短生成**
-  四项偏离，**fixed-teacher 为 paper 原有**（非仓库新增，修正"五旋钮皆静默修复"
-  的表述）。裸配置（五旋钮翻向最大泄露、teacher 改 dynamic **超出** paper）作
-  **阳性对照探测**：复现出行为级泄露 → 抑制器二分定位最小杀死集（fixed-teacher
-  恢复项顺带检验 paper-OPSD 本身是否会泄露）；裸配置仍零泄露 → 非复现如实写入
-  discussion（RLSD 观察或依赖仓外模型/数据）。**桥接身份 = 仓库静默修复集的归因，
-  非新方法。** git 考证局限：根提交 3.18 已含全部旋钮，3.03 首发不可 diff。
+- **泄露桥接实验（版本谱系评估，`version_genealogy.md`）**：论文对照（arXiv
+  2601.18734）确认 repo 相对 paper **新增 clip、强化 guard、关闭 student thinking、
+  缩短生成**四项偏离，**fixed-teacher 为 paper 原有**（非静默修复）。重构为**两层
+  单旋钮对照**：**Tier 1 = paper-OPSD v1 忠实复现**（TM-on、2048、**保留
+  fixed_teacher**、clip 0、paper v1 温和 guard 逐字）作**主实验**，答"RLSD 攻击的
+  版本在我方模型/数据是否泄露"；**Tier 2 = Tier 1 去 fixed_teacher**（动态反馈环、
+  **超出** paper，仅 Tier 1 阴性才跑）。判读树：T1 阳 → 四偏离抑制器二分（150 步
+  短 run 逐项恢复 repo 值）；T1 阴 + T2 阳 → 泄露需动态回路、**fixed-teacher 即最强
+  抑制器**；双阳 → T1 分支 + T2 强度对照；双阴 → 升 8B，再阴入 discussion。**桥接
+  身份 = 仓库静默修复集归因，非新方法。** git 考证局限：根提交 3.18 已含全部旋钮，
+  3.03 首发不可 diff。（旧 4096 单一裸配置 job 30189 OOM 退休，被两层取代。）
 
 ### v0 loss 完整定义（冻结）
 - **三桶分诊**（rollout 生成后即时，零成本 verifier + V(t)）：

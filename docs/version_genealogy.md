@@ -57,34 +57,66 @@ after-the-fact mitigations absent from the published method.
 
 ---
 
-## 3. The bridge "bare" config in this lineage
+## 3. The three guard texts (verbatim)
 
-`scripts/run_opsd_1b_3gpu_bare.sh` flips five knobs toward maximal leakage:
+The transition/guard sentence exists in three distinct wordings; the bridge
+experiment must not conflate them.
 
-| knob | bare value | vs paper | vs repo |
-|---|---|---|---|
-| clip | 0 (off) | = paper (no clip) | undoes repo add |
-| guard | neutral connective | ≈ paper (mild) | undoes repo hardening |
-| student thinking | ON | = paper | undoes repo flip |
-| generation | 4096 / 300 steps | ≥ paper (2048) | longer than repo |
-| teacher | **dynamic** | **beyond paper (fixed)** | undoes repo fixed |
+- **paper-OPSD v1** (arXiv 2601.18734, Fig 2, mild):
+  > "After understanding the reference solution, please try to solve this problem using your own approach below:"
+- **repo-OPSD** (`data_collator.py`, hardened):
+  > "After reading the reference solution above, make sure you truly understand the reasoning behind each step — do not copy or paraphrase it. Now, using your own words and independent reasoning, derive the same final answer to the problem above. Think step by step, explore different approaches, and don't be afraid to backtrack or reconsider if something doesn't work out:"
+- **experiment-A neutral** (`run_opsd_1b_3gpu_noguard.sh`, a *third* text, NOT used by the bridge):
+  > "Now, derive the final answer to the problem above."
 
-So the bare run is **not** a byte-accurate paper replica: on the teacher axis it
-is *more* leak-prone than paper-OPSD (dynamic vs fixed). It is deliberately the
-**upper bound** of the leakage surface — if leakage does not appear here, the
-softer paper/repo configs will not show it either. If it *does* appear, the
-suppressor bisection (restore one knob at a time) localizes the minimal killing
-set, and the fixed-teacher restoration tests whether paper-OPSD itself would
-have leaked.
+Tier 1 uses the **paper v1 mild** text verbatim via `--transition_prompt_override`.
 
 ---
 
-## 4. Identity of the bridge experiment
+## 4. Two-tier bridge design
 
-The bridge experiment is a **version-genealogy evaluation**, not a new method:
-the five knobs are the repo's (partly silent) mitigation set layered on top of
-the published method. A positive control (leakage reproduced on the bare config)
-plus a suppressor bisection turns "we saw zero leakage" into "leakage is real
-but suppressed by knobs X, Y" — or, if the bare config is also clean, into an
-honest non-reproduction reported alongside this table (the RLSD observation may
-rest on model/data specifics outside this repo).
+Superseded the earlier single "bare" (4096, dynamic, neutral-guard) config once
+the archaeology established that fixed-teacher is paper-original. The bridge is
+now two runs differing by a single knob (the teacher axis), so a positive/negative
+split cleanly attributes the dynamic feedback loop.
+
+### Tier 1 — paper-OPSD v1 faithful reproduction (MAIN)
+`scripts/run_tier1_paper_opsd.sh`, run_config `qwen31b_paper_opsd_v1`.
+
+| knob | Tier 1 value | vs paper v1 | vs repo |
+|---|---|---|---|
+| clip | 0 | = paper | undoes repo add |
+| guard | paper v1 mild (verbatim, §3) | = paper | undoes repo hardening |
+| student thinking | ON | = paper (Table 5) | undoes repo flip |
+| generation | **2048** / 300 steps | = paper (Table 6) | longer than repo (1024) |
+| teacher | **fixed** initial policy | = paper (kept) | = repo |
+
+LoRA is retained (paper trains the same way per its setup; any residual delta is
+noted here, not silently assumed away). **Science question: does the version
+RLSD attacked leak on our model/data?**
+
+### Tier 2 — dynamic-teacher variant (aggressive probe, BEYOND paper)
+`scripts/run_tier2_dynamic.sh`, run_config `qwen31b_tier2_dynamic`. **Exactly
+Tier 1 with `--fixed_teacher` removed** → teacher = current student + privileged
+context (`compute_loss` nullcontext path = teacher-student feedback loop). Run
+**only if Tier 1 is negative**.
+
+> **Scheduling note.** An earlier 4096/dynamic/neutral-guard "bare" run (job
+> 30189) was submitted before this two-tier revision and **OOM'd** (batch-4 @4096
+> full-vocab JSD forward hit 136/140 GiB). It is retired, not revived: its 4096
+> length and neutral guard no longer match the Tier-2 definition (2048, paper
+> guard). Tier 2 is the correct single-knob sibling of Tier 1.
+
+---
+
+## 5. Decision tree & identity
+
+The bridge is a **version-genealogy evaluation**, not a new method. Tier 1 tests
+the published method; Tier 2 tests the dynamic-loop hypothesis. Four outcomes:
+
+| outcome | reading |
+|---|---|
+| **T1 positive** | RLSD leakage reproduces on paper-OPSD. The four repo deltas (clip, guard, thinking, length) are the suppressor-candidate set → bisection (restore one repo value at a time, 150-step short runs) localizes the minimal killing set. |
+| **T1 negative, T2 positive** | Leakage needs the dynamic teacher-student feedback loop; both paper and repo are protected by the **fixed teacher** — fixed-teacher is then the single strongest suppressor. Bisection focuses on the remaining knobs *on top of* T2. |
+| **both positive** | Follow the T1 branch; T2 serves as an intensity/upper-bound control. |
+| **both negative** | Escalate to 8B (Tier-1 config first). If still clean, report honest non-reproduction; residual gap to RLSD (VL model / its data / its implementation) is the reproducibility boundary, tabled alongside this genealogy. |

@@ -1,9 +1,9 @@
 #!/bin/bash
-#PBS -N opsd_bare_leaky_1b
+#PBS -N tier1_paper_opsd
 #PBS -P ds_ccds_wei.lu
 #PBS -q gpu_ded
 #PBS -l select=1:ncpus=12:ngpus=3
-#PBS -l walltime=04:00:00
+#PBS -l walltime=08:00:00
 #PBS -j oe
 
 set -euo pipefail
@@ -18,6 +18,7 @@ cd /home/xiaoyan.yu/projects/OPSD
 export PYTHONUNBUFFERED=1
 export HF_HUB_OFFLINE=1
 export DS_SKIP_CUDA_CHECK=1
+export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 unset CPATH C_INCLUDE_PATH CPLUS_INCLUDE_PATH
 
 if echo "${CUDA_VISIBLE_DEVICES:-}" | grep -q "GPU-"; then
@@ -27,14 +28,15 @@ if echo "${CUDA_VISIBLE_DEVICES:-}" | grep -q "GPU-"; then
 fi
 
 mkdir -p pbs/logs
-exec > "pbs/logs/opsd_bare_leaky_1b.${PBS_JOBID}.log" 2>&1
+exec > "pbs/logs/tier1_paper_opsd.${PBS_JOBID}.log" 2>&1
 
 echo "Job: ${PBS_JOBID}  Node: $(hostname)  GPU: ${CUDA_VISIBLE_DEVICES:-unset}"
 nvidia-smi -L
 df -h ~ | tail -1
 
-echo "=== BARE leaky OPSD run (leakage bridge positive control, 300 steps @4096, TM-on, dynamic teacher, no clip, no guard) ==="
-bash scripts/run_opsd_1b_3gpu_bare.sh
+echo "=== Tier 1: paper-OPSD v1 faithful reproduction (leakage bridge main experiment) ==="
+echo "    TM-on, 2048, fixed_teacher KEPT, clip 0, paper v1 mild guard, 300 steps @ save 50"
+bash scripts/run_tier1_paper_opsd.sh
 rc=$?
 echo "=== exit code: ${rc} ==="
 echo "=== DONE ==="
