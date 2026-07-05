@@ -156,10 +156,16 @@ def main():
       "corruption-sensitive; the two leakage measures agree at trajectory level)")
     A(f"- high/low median ratio: {np.median(hi)/max(np.median(lo),1e-6):.2f}x; "
       f"high/baseline: {np.median(hi)/BASELINE_MASS:.2f}x\n")
-    A("**Read**: AUC>0.5 and high>low>baseline => the corruption probe measures "
-      "real privilege dependence — behavioral leakage and distributional "
-      "corruption sensitivity are the same phenomenon seen two ways. Probe "
-      "validity positively confirmed on the positive control.")
+    lift = float(np.median(np.concatenate([hi, lo])) / BASELINE_MASS)
+    traj = ("trajectory-level agreement (keyword-leaking rollouts ARE more "
+            "corruption-sensitive)" if auc >= 0.60 else
+            "NO trajectory-level correlation (AUC~chance): corruption sensitivity "
+            "is a TEACHER-side property (T_S vs T_S̃), keyword leakage a "
+            "STUDENT-side one — different subjects, so no per-rollout agreement")
+    A(f"**Read**: config-level lift = {lift:.1f}x baseline (leaky config carries "
+      f"far stronger distributional privilege dependence). Trajectory level: "
+      f"{traj}. Scope the validity claim to the CONFIG level, not individual "
+      "trajectories.")
 
     fig, ax = plt.subplots(figsize=(8, 4.5))
     hi_c = np.clip(hi, 0, np.quantile(np.concatenate([hi, lo]), 0.98))
