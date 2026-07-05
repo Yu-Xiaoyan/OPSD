@@ -40,6 +40,14 @@ class CustomScriptArguments(ScriptArguments):
             "The teacher will use the base model without LoRA adapters, while the student updates."
         },
     )
+    gated: bool = field(
+        default=False,
+        metadata={
+            "help": "Use OPSDGatedTrainer (v0): trajectory triage + per-token weight synthesis "
+            "on top of OPSD. Buckets rollouts (verifier v2) and soft-weights the JSD loss per the "
+            "frozen stage-1 gating (docs/framework.md). JSD path only."
+        },
+    )
     run_config: str = field(
         default=None,
         metadata={
@@ -281,7 +289,16 @@ if __name__ == "__main__":
     _override = script_args.transition_prompt_override
     if _override is not None:
         _override = _override.replace("\\n", "\n")
-    data_collator = SelfDistillationDataCollator(
+    # v0 gating: swap in the gated collator + trainer (JSD path). Default OFF ->
+    # byte-for-byte OPSD baseline.
+    if script_args.gated:
+        from v0_collator import GatedDataCollator
+        from v0_trainer import OPSDGatedTrainer
+        CollatorCls, TrainerCls = GatedDataCollator, OPSDGatedTrainer
+    else:
+        CollatorCls, TrainerCls = SelfDistillationDataCollator, OPSDTrainer
+
+    data_collator = CollatorCls(
         tokenizer=tokenizer,
         max_length=training_args.max_length,
         reason_first=script_args.reason_first,
@@ -290,7 +307,7 @@ if __name__ == "__main__":
         transition_prompt_override=_override,
     )
 
-    trainer = OPSDTrainer(
+    trainer = TrainerCls(
         model=model_args.model_name_or_path,
         args=training_args,
         train_dataset=train_dataset,
