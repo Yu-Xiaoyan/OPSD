@@ -26,6 +26,8 @@ import leakage_detector as ld
 GEN_DIR = os.path.expanduser(
     "~/opsd_outputs/qwen31b_repro_3xh200_gb30/generations")
 OUT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "analysis")
+OUT_PREFIX = "leakage_over_training"     # output basename (md + png)
+TITLE = "OPSD leakage behavioral probes vs training step (Qwen3-1.7B, TM-off)"
 KW_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                        "leakage_keywords.txt")
 DATASET = "siyanzhao/Openthoughts_math_30k_opsd"
@@ -51,6 +53,18 @@ def snippet(text: str, pos: int, radius: int = 90) -> str:
 
 
 def main():
+    import argparse
+    global GEN_DIR, OUT_PREFIX, TITLE
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--gen_dir", default=GEN_DIR,
+                    help="dir with generations_step_*.json dumps")
+    ap.add_argument("--out_prefix", default=OUT_PREFIX,
+                    help="output basename in probes/analysis/ (md + png)")
+    ap.add_argument("--title", default=TITLE, help="plot title")
+    args = ap.parse_args()
+    GEN_DIR = os.path.expanduser(args.gen_dir)
+    OUT_PREFIX, TITLE = args.out_prefix, args.title
+
     os.makedirs(OUT_DIR, exist_ok=True)
     keywords = ld.load_keywords(KW_PATH)
     print(f"loaded {len(keywords)} keywords")
@@ -183,11 +197,11 @@ def _plot(rows):
             color="gray", fontsize=8)
     ax.set_xlabel("training step")
     ax.set_ylabel("hit rate (%)")
-    ax.set_title("OPSD leakage behavioral probes vs training step (Qwen3-1.7B, TM-off)")
+    ax.set_title(TITLE)
     ax.legend(loc="upper left", fontsize=9)
     ax.grid(True, alpha=0.3)
     fig.tight_layout()
-    out = os.path.join(OUT_DIR, "leakage_over_training.png")
+    out = os.path.join(OUT_DIR, f"{OUT_PREFIX}.png")
     fig.savefig(out, dpi=120)
     print(f"wrote {out}")
 
@@ -300,7 +314,7 @@ def _write_md(rows, appendix, keywords):
     if not any_hit:
         A("_No hits under either probe across all steps._\n")
 
-    out = os.path.join(OUT_DIR, "leakage_over_training.md")
+    out = os.path.join(OUT_DIR, f"{OUT_PREFIX}.md")
     with open(out, "w", encoding="utf-8") as f:
         f.write("\n".join(lines))
     print(f"wrote {out}")
