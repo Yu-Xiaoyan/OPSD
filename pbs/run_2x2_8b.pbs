@@ -1,0 +1,47 @@
+#!/bin/bash
+#PBS -N run_2x2_8b
+#PBS -P ds_ccds_wei.lu
+#PBS -q gpu_ded
+#PBS -l select=1:ncpus=6:ngpus=1
+#PBS -l walltime=03:00:00
+#PBS -j oe
+
+set -uo pipefail
+
+module purge
+module load anaconda/2025
+module load cuda/13.1
+eval "$(/usr/local/anaconda2025/bin/conda shell.bash hook)"
+conda activate opsd
+
+cd /home/xiaoyan.yu/projects/OPSD
+export PYTHONUNBUFFERED=1
+export HF_HUB_OFFLINE=1
+export NCCL_P2P_DISABLE=1
+export DS_SKIP_CUDA_CHECK=1
+unset CPATH C_INCLUDE_PATH CPLUS_INCLUDE_PATH
+
+if echo "${CUDA_VISIBLE_DEVICES:-}" | grep -q "GPU-"; then
+    GPU_COUNT=$(echo "${CUDA_VISIBLE_DEVICES}" | tr ',' '\n' | wc -l)
+    CUDA_VISIBLE_DEVICES=$(seq -s, 0 $((GPU_COUNT - 1)))
+    export CUDA_VISIBLE_DEVICES
+fi
+
+mkdir -p pbs/logs
+exec > "pbs/logs/run_2x2_8b.${PBS_JOBID}.log" 2>&1
+
+echo "Job: ${PBS_JOBID}  Node: $(hostname)  GPU: ${CUDA_VISIBLE_DEVICES:-unset}"
+nvidia-smi -L
+
+echo "=== 8B 2x2 corruption scan (gate D step 3): corruption-null occupancy vs 1.7B ==="
+echo "    same ROLLOUT_CAP=1024 as 1.7B; correct/wrong only (skip truncated)"
+~/.conda/envs/opsd/bin/python probes/run_2x2.py \
+    --base "$HOME/models/Qwen3-8B" \
+    --ckpt "$HOME/opsd_outputs/qwen38b_repro_3xh200_gb30/checkpoint-50" \
+    --input rollouts_8b_ckpt50_max4096.jsonl \
+    --out_tag _8b \
+    --skip_truncated
+rc=$?
+echo "=== exit code: ${rc} ==="
+echo "=== DONE ==="
+exit $rc

@@ -82,28 +82,36 @@ def main():
     ap.add_argument("--shard", type=int, default=0)
     ap.add_argument("--nshards", type=int, default=1)
     ap.add_argument("--limit", type=int, default=None)
+    ap.add_argument("--base", type=str, default=BASE)
+    ap.add_argument("--ckpt", type=str, default=CKPT)
+    ap.add_argument("--input", type=str, default="rollouts_ckpt50_max4096.jsonl",
+                    help="input rollouts jsonl (in probes/data/)")
+    ap.add_argument("--out_tag", type=str, default="",
+                    help="output tag: diag2x2{tag}_shard{n}.jsonl")
+    ap.add_argument("--skip_truncated", action="store_true",
+                    help="skip the truncated-bucket pass (8B corruption-null run)")
     args = ap.parse_args()
     os.makedirs(DATA, exist_ok=True)
 
-    tok = AutoTokenizer.from_pretrained(BASE, padding_side="left")
+    tok = AutoTokenizer.from_pretrained(args.base, padding_side="left")
     if tok.pad_token is None:
         tok.pad_token = tok.eos_token
     base = AutoModelForCausalLM.from_pretrained(
-        BASE, torch_dtype=torch.bfloat16,
+        args.base, torch_dtype=torch.bfloat16,
         attn_implementation="flash_attention_2").cuda().eval()
-    model = PeftModel.from_pretrained(base, CKPT).eval()
+    model = PeftModel.from_pretrained(base, args.ckpt).eval()
     tr = load_dataset(DATASET)["train"]
 
     def solution_of(pid):
         return tr[pid]["solution"]
 
     # ---------- correct / wrong: full 2x2 (4096 collection) ----------
-    recs = [json.loads(l) for l in open(os.path.join(DATA, "rollouts_ckpt50_max4096.jsonl"))]
+    recs = [json.loads(l) for l in open(os.path.join(DATA, args.input))]
     cw = [r for r in recs if r["bucket"] in ("correct", "wrong")]
     cw = [r for i, r in enumerate(cw) if i % args.nshards == args.shard]
     if args.limit:
         cw = cw[:args.limit]
-    out_path = os.path.join(DATA, f"diag2x2_shard{args.shard}.jsonl")
+    out_path = os.path.join(DATA, f"diag2x2{args.out_tag}_shard{args.shard}.jsonl")
     print(f"[2x2] {len(cw)} correct/wrong rollouts (shard {args.shard}/{args.nshards})")
     with open(out_path, "w", encoding="utf-8") as f:
         for j, r in enumerate(cw):
@@ -159,7 +167,7 @@ def main():
     print(f"[2x2] wrote {out_path}")
 
     # ---------- truncated: T_S vs S + V(t) (1024 collection) ----------
-    if args.shard == 0:
+    if args.shard == 0 and not args.skip_truncated:
         recs1 = [json.loads(l) for l in open(os.path.join(DATA, "rollouts_ckpt50_max1024.jsonl"))]
         trunc = [r for r in recs1 if r["bucket"] == "truncated"]
         if args.limit:
