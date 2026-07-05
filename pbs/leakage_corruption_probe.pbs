@@ -1,0 +1,40 @@
+#!/bin/bash
+#PBS -N leak_corr_probe
+#PBS -P ds_ccds_wei.lu
+#PBS -q gpu_ded
+#PBS -l select=1:ncpus=6:ngpus=1
+#PBS -l walltime=02:00:00
+#PBS -j oe
+
+set -uo pipefail
+
+module purge
+module load anaconda/2025
+module load cuda/13.1
+eval "$(/usr/local/anaconda2025/bin/conda shell.bash hook)"
+conda activate opsd
+
+cd /home/xiaoyan.yu/projects/OPSD
+export PYTHONUNBUFFERED=1
+export HF_HUB_OFFLINE=1
+export DS_SKIP_CUDA_CHECK=1
+unset CPATH C_INCLUDE_PATH CPLUS_INCLUDE_PATH
+
+if echo "${CUDA_VISIBLE_DEVICES:-}" | grep -q "GPU-"; then
+    GPU_COUNT=$(echo "${CUDA_VISIBLE_DEVICES}" | tr ',' '\n' | wc -l)
+    CUDA_VISIBLE_DEVICES=$(seq -s, 0 $((GPU_COUNT - 1)))
+    export CUDA_VISIBLE_DEVICES
+fi
+
+mkdir -p pbs/logs
+exec > "pbs/logs/leak_corr_probe.${PBS_JOBID}.log" 2>&1
+
+echo "Job: ${PBS_JOBID}  Node: $(hostname)  GPU: ${CUDA_VISIBLE_DEVICES:-unset}"
+nvidia-smi -L
+
+echo "=== Task (a): corruption-probe validity on Tier-1 leaky run (high vs low leakage) ==="
+~/.conda/envs/opsd/bin/python probes/leakage_corruption_probe.py
+rc=$?
+echo "=== exit code: ${rc} ==="
+echo "=== DONE ==="
+exit $rc
