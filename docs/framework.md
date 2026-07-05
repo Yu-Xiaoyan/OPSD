@@ -241,10 +241,23 @@ n 很小，corruption-null 排除后 gate-C usable 仅个位数）。部分双�
 早现 clean 1.28%，`leakage_over_training.md`）；**分布级 corruption-null 占比高
 （correct 52% / wrong 78%，`diag_2x2.md`）—— 过半轨迹 teacher 对答案被腐蚀
 几乎无反应**；去指令 guard 消融行为无差异（early-clean 1.28% vs 0.88%）。
-**8B 补充**：行为级 leakage 8B ≈ 1.7B ≈ 0（8B kw 0.07%），**行为级"随容量增长"
-假说不成立**。三个候选抑制器并列：**(a) 模型容量**、**(b) prompt guard + clip
-缓解**、**(c) LoRA 低秩**。**[PENDING — 8B 分布级裁决]**：8B 2×2 的 corruption-null
-占比 vs 1.7B（若 8B 显著更低则支持容量假说）。
+**8B 补充**：行为级 leakage 8B ≈ 1.7B ≈ 0（`gate_d_arbitration.md` 同口径 ckpt-50
+0.3 rollouts：kw 0.5%=0.5%、early-clean 3.8% vs 4.4%、strong 0% vs 0.6%[1 条]），
+**行为级"随容量增长"假说不成立**。三个候选抑制器并列：**(a) 模型容量**、
+**(b) prompt guard + clip 缓解**、**(c) LoRA 低秩**。
+- **8B 分布级裁决已回填**（`gate_d_arbitration.md`，同 cap=1024 口径）：8B 2×2
+  的 **corruption-null 并未随规模大幅下降** —— correct 52.3%→**58.1%（反升）**、
+  wrong 77.5%→**66.7%（小降但仍主导）**，corruption mass 8B 反而更低（correct
+  0.469→0.379、wrong 0.230→0.205），gate-C lift 同量级（studentwrong 3.30→3.65、
+  irrelevant 2.21→5.68，n=5 小样本）。**分布级"容量激活 leakage 轴"假说亦不成立**：
+  8B 未使 teacher 对答案腐化显著更敏感。**唯一朝激活方向的信号**是 8B wrong 桶
+  null −10.8pp，但 correct 反向 + 8B wrong n=51 采样噪声，不足支撑。
+- **门 D 终裁**：leakage/privilege 轴在 1.7B、8B **两个规模均疲软**（行为级近零 +
+  分布级 corruption-null 主导，未随规模质变）。→ **主实验战场选 1.7B**（8B 不带来
+  leakage 轴质变，省算力）；**leakage 轴在论文中戏份收敛为"负结果 → 动机"**：行为
+  面无可用 ground truth、分布面 teacher 多数不 copy privileged 答案，正是 corruption/
+  JSD 分布探针（而非行为探针）的立论依据。抑制器 (a)/(b)/(c) 三者并列，8B 证据
+  弱化 (a) 单独主导（容量 4.7× 未质变）。
 
 ### v0 loss 完整定义（冻结）
 - **三桶分诊**（rollout 生成后即时，零成本 verifier + V(t)）：
