@@ -212,6 +212,13 @@ token 只承载 ~30% 的分歧质量，insensitive×any-drift = 69.9%**（非 co
   V(t) **主用相对变化 ΔV**（骤降定位 + 过程 advantage），**降低对 V(end) 绝对值
   的依赖**（AUC 0.700 表明绝对值部分含格式信号）。代理分层 δ 保留但标注判别力弱，
   训练期 wrong 桶近似统一软加权。
+- **verifier v2 修复力有限（`rebucket_audit.md`）**：全量 v1 wrong→correct 救回
+  32/281（11.4%；8B 21.6% > 1.7B 11.2% > wrong_extra 8.0%）。49 条混淆矩阵中
+  **pseudo 仅 3/11 被 v2 救回**（多-boxed / option 类），残 8/11 为语义等值
+  （interval/set/statement）仍留 wrong 桶；true_wrong 泄漏 1/30（any-boxed 误匹配
+  中间步）。故 wrong 桶仍含 ~16% 残留 pseudo，由 **V(t) 软加权二次保护**（pseudo
+  V(end) 高于 true_wrong，软加权自动降其惩罚）—— 这是 wrong 桶统一软加权、
+  不用硬 unlikelihood 的**第二独立理由**。
 - **v0 修订记录（2026-07-05）**：原设计的"clear 型 t\* 硬 unlikelihood"因 ±1 命中
   0/10 退化为 ΔV 软加权；这是本节冻结后的第一条显式修订。
 
