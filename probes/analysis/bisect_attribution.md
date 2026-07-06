@@ -17,6 +17,14 @@ teacher = fixed base. repo-OPSD correct-bucket baseline = 0.469.
 not suppression — tmoff is judged by early-emission + corruption per the bisection
 instruction.
 
+**Window note (prevents a future number clash).** Tier-1 keyword here is **11.79%
+(window 105-195**, matched to the variants). The headline **Tier-1 22.51%** quoted
+elsewhere is the **full extended window 105-300** — leakage keeps climbing with
+training (kw at step 150 ≈ 21%, higher by 295), so the shorter 105-195 window
+gives a lower rate. Same run, different window; both correct. All variant vs
+Tier-1 comparisons here use the matched 105-195 (behavioral) / 150-195
+(corruption) windows.
+
 ## Findings
 
 - **No single minimal killing set — redundant suppression.** clip, length, and
@@ -46,6 +54,23 @@ keyword-only leakage screen would **misrank** the suppressors: it would credit t
 guard and could miss that clip/TM-off are what actually remove the dependence.
 This is the case for measuring leakage distributionally (the corruption probe),
 not just behaviorally.
+
+## Predictions (user), checked against the corruption column
+
+Two mechanism-level predictions on the corruption column. **Honesty note on
+timing**: the corruption column (job 30333) had **already completed** when these
+were registered, so this is a **confirmatory** check, NOT a strict
+pre-registration. The mechanism reasoning is independent of the numbers, and both
+hold — recorded here so reasoning and outcome sit together.
+
+- **P1 — +guard corruption ≈ Tier 1 (3.3–5.5 order).** Rationale: guard changes
+  only the student's *phrasing*, not the rollout's inducement of the teacher's
+  privilege dependence. **Result:** guard median 2.30 / mean 4.48 vs Tier-1 median
+  2.65 / mean 5.73 — same order (4.9× vs 5.7× repo). **P1 holds** → the "cosmetic"
+  verdict is confirmed at the *source* (corruption) level, not just behaviorally.
+- **P2 — +tmoff corruption trends toward repo 0.47.** Rationale: short
+  direct-answer rollouts do not induce teacher privilege dependence. **Result:**
+  tmoff median 0.616 (1.3× repo) — strongly toward baseline. **P2 holds.**
 
 Sources: `bisect_attribution.txt` (keyword + early-emission), `bisect_corruption.txt`
 (corruption), `leakage_tier1_paper.md` (Tier-1 positive control).
