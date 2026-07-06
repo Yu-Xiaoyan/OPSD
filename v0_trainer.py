@@ -13,8 +13,9 @@ frozen v0 gating decided in stage 1 (docs/framework.md):
     6. wandb gating stats.
 
 Only the JSD path is gated; the thinking-machines (reverse-KL policy-gradient)
-path falls back to the parent. ΔV is a proxy (per-token divergence z-score) —
-wiring the real V(t) probe is a TODO (see gating.py).
+path falls back to the parent. ΔV is the REAL V(t)=log p(answer|prefix) segment
+change (teacher-forcing on the fixed base teacher, no grad), broadcast to tokens
+by checkpoint segment; τ from 3c gate_b.md. Corruption gate OFF (gate-D verdict).
 """
 from __future__ import annotations
 
@@ -96,18 +97,53 @@ class OPSDGatedTrainer(OPSDTrainer):
         B = mask.shape[0]
         ex_ids = torch.arange(B, device=mask.device)[:, None].expand_as(mask)[mask]
 
-        # === TRIAGE + WEIGHTS ===
-        buckets = bucket_batch(
-            sampled_token_ids, shifted_labels,
-            inputs.get("gt_answers"), self.processing_class,
-            inputs.get("problems"),
-        )
-        W = synth_weights(per_tok.detach(), ex_ids, buckets, self.gate_config)
+        # === TRIAGE (verifier v2) ===
+        gt_answers = inputs.get("gt_answers")
+        problems = inputs.get("problems")
+        buckets = bucket_batch(sampled_token_ids, shifted_labels, gt_answers,
+                               self.processing_class, problems)
+
+        # === REAL V(t) ΔV + structural mask (per wrong/truncated rollout) ===
+        # teacher-forcing V(t)=log p(answer|prefix) on the fixed base teacher, no
+        # grad (weight synthesis only). ΔV broadcast to tokens by segment.
+        n_valid = per_tok.shape[0]
+        dev = per_tok.device
+        dv_per_tok = torch.zeros(n_valid, device=dev)
+        struct_mask = torch.zeros(n_valid, dtype=torch.bool, device=dev)
+        vend = torch.full((B,), float("nan"), device=dev)
+        tok = self.processing_class
+        t_probe = 0.0
+        with torch.no_grad(), self._teacher_context(model):
+            for i in range(B):
+                sel = ex_ids == i
+                if int(sel.sum()) == 0:
+                    continue
+                ids_i = sampled_token_ids[i][mask[i]].tolist()
+                toks_i = tok.convert_ids_to_tokens(ids_i)
+                struct_mask[sel] = torch.tensor(_structural_mask(toks_i), device=dev)
+                if buckets[i] in ("wrong", "truncated") and len(ids_i) >= 8:
+                    t0 = time.time()
+                    cps = auto_checkpoints(tok, ids_i, max_points=16)
+                    vt = answer_likelihood_probe(
+                        model, tok, problems[i] if problems else "", ids_i,
+                        str(gt_answers[i]) if gt_answers else "",
+                        checkpoint_positions=cps)
+                    t_probe += time.time() - t0
+                    vend[i] = float(vt["V"][-1])
+                    dv_i = _broadcast_dv(vt["delta_V"], vt["checkpoint_positions"],
+                                         len(ids_i))
+                    dv_per_tok[sel] = torch.tensor(dv_i, device=dev)
+
+        # === WEIGHT SYNTHESIS (frozen v0) ===
+        W = synth_weights(buckets, ex_ids, dv_per_tok, vend, struct_mask,
+                          self.gate_config)
         loss = (per_tok * W).sum() / W.sum().clamp_min(1.0)
 
-        # === GATING STATS -> metrics (averaged in log()) ===
+        # === GATING STATS -> metrics ===
         mode = "train" if model.training else "eval"
-        for k, v in gating_stats(buckets, W).items():
+        stats = gating_stats(buckets, W)
+        stats["gate/probe_time_s"] = t_probe
+        for k, v in stats.items():
             self._metrics[mode][k].append(v)
 
         torch.cuda.empty_cache()
