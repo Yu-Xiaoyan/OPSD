@@ -132,3 +132,20 @@ semantics, and reproduction risks.
 - **Keep code, commands, file paths, identifiers, and established technical terms
   in English** (e.g. `git push`, `qsub`, `avg@12`, `OPSDGatedTrainer`, ΔV).
   Do not translate them — mixed Chinese prose with English tokens is the norm.
+
+## 9. 自主边界（Autonomy boundaries）
+
+**无需请示、直接执行：**
+- 白名单内命令（read-only 查询、`git status`/`log`/`diff`、`qstat`、日志查看等）。
+- 按既定计划的作业提交与轮询（`qsub` 已商定的 job、监控其 `qstat` + `pbs/logs`）。
+- `git commit` + `git push`（push 是默认动作，见 §7 与自主记忆）。
+- 按预注册口径产出分析文档（如 `docs/v0_predictions.md` 锁定的判读协议）。
+- 修复自己在本 session 引入的 bug。
+
+**必须停下、先请示：**
+- 删除任何文件 / 目录。
+- 改动**冻结的实验配置**（framework 已裁决项：v0 loss 定义、门控裁决、τ 等）。
+- 提交**计划外**、且单作业 GPU 占用 **> 2 小时**的新 job。
+- 任何**"指令与仓库现实矛盾"**的情形（echo 与 git 冲突、交接说明与代码不符等）——
+  立即停手报告，不在未核实状态上继续搭建（呼应 §7）。
+- 影响**论文 claim 的口径变更**（eval 协议、指标定义、基线对齐口径等）。
