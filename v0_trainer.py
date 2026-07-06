@@ -19,14 +19,52 @@ by checkpoint segment; τ from 3c gate_b.md. Corruption gate OFF (gate-D verdict
 """
 from __future__ import annotations
 
+import os
+import re
+import sys
+import time
 from contextlib import nullcontext
-from typing import Any
 
 import torch
 from accelerate.utils import is_peft_model
 
 from opsd_trainer import OPSDTrainer
 from gating import GateConfig, bucket_batch, synth_weights, gating_stats
+
+# probes/ hosts the real V(t) answer-likelihood probe. gating (imported above)
+# already puts this on sys.path; replicate the insert so v0_trainer is
+# self-contained regardless of import order.
+_PROBES = os.path.join(os.path.dirname(os.path.abspath(__file__)), "probes")
+if _PROBES not in sys.path:
+    sys.path.insert(0, _PROBES)
+from answer_likelihood import answer_likelihood_probe, auto_checkpoints  # noqa: E402
+
+# structural-token regex (markup / section / step). Same pattern as
+# probes/analyze_2x2.py::_STRUCT_RE — used for the correct-bucket structural
+# downweight (gate-A, framework.md v0 loss).
+_STRUCT_RE = re.compile(
+    r"\*\*|-{3,}|#{2,}|\bStep\b|\bSection\b|\bPart\b|\bChapter\b|\bCase\b", re.I)
+
+
+def _structural_mask(tokens):
+    """Per-token bool: structural (markup/section/step) token -> correct-bucket
+    downweight. Mirrors probes/analyze_2x2.py::relabel_struct convention."""
+    return [bool(_STRUCT_RE.search(t)) for t in tokens]
+
+
+def _broadcast_dv(delta_V, checkpoint_positions, T):
+    """Broadcast segment ΔV to per-token values at checkpoint-segment
+    granularity (mirrors probes/render_sample.py::_delta_v_per_token): tokens in
+    [pos[j], pos[j+1]) take delta_V[j]=V[j+1]-V[j]; tokens outside any scored
+    segment (before the first checkpoint / after the last) stay 0."""
+    dv = [0.0] * T
+    pos = [int(p) for p in checkpoint_positions]
+    for j, d in enumerate(delta_V):
+        lo = min(pos[j], T)
+        hi = min(pos[j + 1], T)
+        for k in range(lo, hi):
+            dv[k] = float(d)
+    return dv
 
 
 class OPSDGatedTrainer(OPSDTrainer):
