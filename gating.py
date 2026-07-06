@@ -1,23 +1,20 @@
-"""v0 gating: trajectory triage + per-token weight synthesis.
+"""v0 gating: trajectory triage + per-token weight synthesis (framework-frozen).
 
-Turns a batch of on-policy student rollouts into per-token distillation weights,
-per the FROZEN framework v0 loss (docs/framework.md, "阶段 1 裁决与 v0 冻结"):
+Implements the FROZEN framework v0 loss (docs/framework.md, "v0 loss 完整定义"):
 
-  - correct bucket   -> gate-A light distill (uniform w_correct)
-  - wrong bucket     -> unified ΔV soft weighting  w ∝ σ(ΔV/τ)
-                        (gate-B verdict: hard t* unlikelihood degraded to soft
-                        weighting because ±1 hit was 0/10; residual v2-missed
-                        pseudo is second-order protected by the soft weight)
-  - truncated bucket -> V(t)-health split (scaffold: soft-weight like wrong)
+  - triage: verifier v2 bucket (correct / wrong / truncated) per rollout.
+  - wrong bucket:   unified ΔV soft weighting  w = σ(ΔV/τ)  — V(t) drop (ΔV<0)
+    down-weights, pre-drop distills normally. NO unlikelihood (gate-B verdict).
+  - correct bucket: gated light distillation — structural tokens (markup/step/
+    section) down-weighted; corruption gate OFF (gate-D verdict, v0 ablation).
+  - truncated bucket: split by V(end) batch median — healthy (high V(end)) uses
+    the wrong-bucket pre-drop logic (σ(ΔV/τ)); degraded (low V(end)) down-weighted.
 
-Training-time ΔV is APPROXIMATED by a proxy (no extra V(t) forward per step):
-the per-token teacher-student divergence, per-example z-scored. This is a
-stand-in for the real V(t)=log p(answer|prefix) drop; wiring the real V(t)
-teacher-forcing probe is a TODO (see answer_likelihood.py). The proxy keeps the
-scaffold runnable and the plumbing (triage -> weight -> stats) exercised.
+ΔV here is the REAL V(t)=log p(answer|prefix) segment change (teacher-forcing),
+broadcast to tokens by the caller (v0_trainer). τ is set from the 3c gate_b.md
+ΔV distribution (see GateConfig.tau provenance).
 
-Verifier bucketing reuses probes/verify_answer.py::bucket_rollout_v2 (any-boxed +
-option letter<->value mapping) — the same v2 the 3a/3d audit validated.
+Verifier bucketing reuses probes/verify_answer.py::bucket_rollout_v2.
 """
 from __future__ import annotations
 
@@ -28,7 +25,6 @@ from dataclasses import dataclass
 
 import torch
 
-# reuse the audited v2 verifier (probes/verify_answer.py)
 _PROBES = os.path.join(os.path.dirname(os.path.abspath(__file__)), "probes")
 if _PROBES not in sys.path:
     sys.path.insert(0, _PROBES)
@@ -37,31 +33,28 @@ from verify_answer import bucket_rollout_v2  # noqa: E402
 
 @dataclass
 class GateConfig:
-    w_correct: float = 0.5        # gate-A light distill weight
-    w_wrong_base: float = 1.0     # wrong-bucket base weight
-    w_trunc: float = 0.7          # truncated-bucket base weight
-    tau: float = 1.0              # softness of the ΔV sigmoid
-    direction: float = -1.0       # -1: down-weight high-divergence (V-drop) tokens
-    # v1 ablation ONLY; NOT implemented in v0 synth_weights. Gate-B verdict
-    # (2026-07-05, gate_b.md): t* ±1 hit was 0/10 -> hard unlikelihood degraded
-    # to unified ΔV soft weighting. Must stay 0 in v0; a nonzero value is a
-    # misconfiguration and raises (see __post_init__) rather than being silently
-    # ignored.
-    lambda_unlik: float = 0.0
+    # ΔV soft-weight temperature. Provenance: 3c gate_b.md — clear/diffuse
+    # most-negative ΔV distribution midpoint δ=-7.629 (gate_b_dv_dist.png); τ=|δ|.
+    tau: float = 7.63
+    w_correct: float = 0.5          # correct, non-structural: light distill
+    w_correct_struct: float = 0.3   # correct, structural token (markup/step): downweight
+    w_wrong_base: float = 1.0       # wrong bucket base
+    w_trunc_healthy: float = 1.0    # truncated healthy segment (high V(end))
+    w_trunc_degraded: float = 0.3   # truncated degraded segment (low V(end))
+    lambda_unlik: float = 0.0       # v1 ablation only; MUST be 0 in v0 (see below)
+    corruption_gate: bool = False   # gate-D verdict: corruption gate OFF in v0
 
     def __post_init__(self):
         if self.lambda_unlik != 0.0:
             raise NotImplementedError(
                 "hard t* unlikelihood is a v1 ablation and is NOT implemented in "
                 "v0 (gate-B verdict 2026-07-05: t* ±1 hit 0/10 -> wrong bucket = "
-                "unified ΔV soft weighting). Keep lambda_unlik=0; do not train a "
-                "gate-B-retired branch.")
+                "unified ΔV soft weighting). Keep lambda_unlik=0.")
 
 
 def bucket_batch(sampled_token_ids, shifted_labels, gt_answers, tokenizer,
                  problems=None):
-    """Verifier-bucket each rollout in the batch: list[str] in
-    {'correct','wrong','truncated'}. Decodes the non-masked generation region."""
+    """Verifier-bucket each rollout: list[str] in {correct,wrong,truncated}."""
     buckets = []
     B = sampled_token_ids.shape[0]
     for i in range(B):
@@ -75,28 +68,44 @@ def bucket_batch(sampled_token_ids, shifted_labels, gt_answers, tokenizer,
     return buckets
 
 
-def synth_weights(per_tok, ex_ids, buckets, cfg):
-    """Per-token distillation weights, aligned to the flat masked token order.
+def synth_weights(buckets, ex_ids, dv_per_tok, vend_per_ex, struct_mask, cfg):
+    """Per-token distillation weights, flat masked-token order.
 
-    per_tok:  [n_valid] detached per-token divergence (ΔV proxy).
-    ex_ids:   [n_valid] example index each valid token belongs to.
-    buckets:  list[str] length B.
-    returns:  [n_valid] weights.
+    buckets:      list[str] length B.
+    ex_ids:       [n_valid] example index each valid token belongs to.
+    dv_per_tok:   [n_valid] REAL per-token ΔV (V(t) segment change broadcast to
+                  tokens); used for wrong + truncated-healthy. 0 where undefined.
+    vend_per_ex:  [B] V(end) per example (NaN allowed); truncated split uses the
+                  batch median over finite values.
+    struct_mask:  [n_valid] bool, structural token (correct-bucket downweight).
+    returns:      [n_valid] weights.
     """
-    W = torch.empty_like(per_tok)
+    device = dv_per_tok.device
+    W = torch.ones_like(dv_per_tok)
+    # truncated healthy/degraded threshold = batch median of finite V(end)
+    finite = vend_per_ex[torch.isfinite(vend_per_ex)]
+    # quantile(0.5) = true median (torch.median returns the LOWER median for an
+    # even count, which would misclassify the split boundary).
+    vmed = float(finite.quantile(0.5)) if finite.numel() else 0.0
+
     for i, b in enumerate(buckets):
         sel = ex_ids == i
         if sel.sum() == 0:
             continue
         if b == "correct":
-            W[sel] = cfg.w_correct
-            continue
-        base = cfg.w_wrong_base if b == "wrong" else cfg.w_trunc
-        d = per_tok[sel]
-        # ΔV proxy soft weight: z-score divergence within the rollout, sigmoid.
-        # direction=-1 -> high divergence (proxy V-drop) tokens get LESS weight.
-        z = (d - d.mean()) / (d.std() + 1e-6)
-        W[sel] = base * torch.sigmoid(cfg.direction * z / cfg.tau)
+            w = torch.full_like(dv_per_tok[sel], cfg.w_correct)
+            w[struct_mask[sel]] = cfg.w_correct_struct
+            W[sel] = w
+        elif b == "wrong":
+            W[sel] = cfg.w_wrong_base * torch.sigmoid(dv_per_tok[sel] / cfg.tau)
+        elif b == "truncated":
+            healthy = torch.isfinite(vend_per_ex[i]) and float(vend_per_ex[i]) >= vmed
+            if healthy:
+                W[sel] = cfg.w_trunc_healthy * torch.sigmoid(dv_per_tok[sel] / cfg.tau)
+            else:
+                W[sel] = cfg.w_trunc_degraded
+        else:  # unknown bucket -> neutral
+            W[sel] = cfg.w_wrong_base
     return W
 
 
