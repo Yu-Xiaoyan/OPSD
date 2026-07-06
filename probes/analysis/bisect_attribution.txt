@@ -1,0 +1,7 @@
+window 105-195 (extended)
+variant                  n  keyword%  early_clean%
+Tier1 (baseline)       950    11.79%        11.09%
++clip                  950     0.32%         5.47%
++guard                 950     1.37%        11.09%
++length                950     0.42%         2.43%
++tmoff                 950     0.00%         1.82%
