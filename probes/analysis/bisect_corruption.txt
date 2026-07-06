@@ -1,0 +1,8 @@
+config-level corruption mass  Σ JSD(T_S, T_S̃)  (teacher=base; rollouts from window 150-195)
+repo-OPSD baseline (correct bucket median): 0.469
+run          median     mean  vs_repo  n
+Tier1         2.652    5.728     5.7x  30
++clip         0.609    1.987     1.3x  30
++guard        2.303    4.475     4.9x  30
++length       1.019    3.793     2.2x  30
++tmoff        0.616    1.121     1.3x  30

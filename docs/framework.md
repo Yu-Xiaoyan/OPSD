@@ -272,6 +272,16 @@ RLSD 攻击的 paper 版含 LoRA 仍泄露，故 LoRA 不能解释 repo 与 pape
   抑制器**；双阳 → T1 分支 + T2 强度对照；双阴 → 升 8B，再阴入 discussion。**桥接
   身份 = 仓库静默修复集归因，非新方法。** git 考证局限：根提交 3.18 已含全部旋钮，
   3.03 首发不可 diff。（旧 4096 单一裸配置 job 30189 OOM 退休，被两层取代。）
+- **Tier 1 阳性 + 抑制器二分归因已完成**（`leakage_tier1_paper.md`、
+  `bisect_attribution.md`）：Tier 1（paper-OPSD v1）**复现泄露**——keyword 引用
+  22.5%（extended，随步涌现，人工核验真引用特权 solution），远高于 repo 0.27%。
+  探针效度：**配置级** corruption 14x 于 repo（阳性），**轨迹级** keyword↔corruption
+  null（teacher-side vs student-side 不同主体，如实标注）。四变体单旋钮二分（三维：
+  keyword / early-emission / config-corruption）：**无单一最小杀死集**——clip/length/
+  tmoff 各自独立把 early-emission + corruption 压回 repo 基线；**guard 是纯表面抑制器**
+  （keyword→1.37% 但 early 11.09% 不动、corruption 4.9x≈Tier1 5.7x），只掩盖引用措辞
+  不减依赖。真抑制力排序 **clip≈tmoff > length > guard**。keyword 与 early/corruption
+  的 dissociation → 证明需**分布级测量（腐蚀探针）**而非仅行为筛查（否则会误信 guard）。
 
 ### v0 loss 完整定义（冻结）
 - **三桶分诊**（rollout 生成后即时，零成本 verifier + V(t)）：
