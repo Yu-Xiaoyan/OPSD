@@ -108,3 +108,19 @@ module load cuda/13.1              # as needed for builds
 
 See `docs/archaeology.md` for a detailed walkthrough of the mechanism, loss
 semantics, and reproduction risks.
+
+## 7. Verification discipline (non-negotiable)
+
+- **After any critical write, verify it landed via git.** A tool reporting
+  success is not proof. Run `git status` / `git diff` and confirm the change is
+  actually present before treating it as done. (A whole session's late writes
+  once silently no-op'd while claiming success — this rule exists because of it.)
+- **`py_compile` is not verification.** It checks syntax only; a file can compile
+  clean yet reference names that were never imported/defined and `NameError` at
+  runtime. Import the module (`python -c "import mod"`) and, for changed logic,
+  exercise it — before declaring it works.
+- **Job reality = `qstat` shows it AND `pbs/logs/` has its log.** Both, always.
+  A submitted job id alone proves nothing ran; a log file alone can be stale.
+  Only when both hold is a run real.
+- **If terminal echo and git disagree, stop and report immediately.** Do not
+  keep building on an unverified state — surface the contradiction first.
