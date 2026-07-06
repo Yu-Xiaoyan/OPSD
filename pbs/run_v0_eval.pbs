@@ -1,0 +1,46 @@
+#!/bin/bash
+#PBS -N v0_eval
+#PBS -P ds_ccds_wei.lu
+#PBS -q gpu_ded
+#PBS -l select=1:ncpus=12:ngpus=3
+#PBS -l walltime=04:00:00
+#PBS -j oe
+
+set -uo pipefail
+
+module purge
+module load anaconda/2025
+module load cuda/13.1
+eval "$(/usr/local/anaconda2025/bin/conda shell.bash hook)"
+conda activate opsd
+
+cd /home/xiaoyan.yu/projects/OPSD
+export PYTHONUNBUFFERED=1
+export HF_HUB_OFFLINE=1            # aime24/aime25 pre-fetched into HF cache
+export NCCL_P2P_DISABLE=1
+export DS_SKIP_CUDA_CHECK=1
+unset CPATH C_INCLUDE_PATH CPLUS_INCLUDE_PATH
+
+if echo "${CUDA_VISIBLE_DEVICES:-}" | grep -q "GPU-"; then
+    GPU_COUNT=$(echo "${CUDA_VISIBLE_DEVICES}" | tr ',' '\n' | wc -l)
+    CUDA_VISIBLE_DEVICES=$(seq -s, 0 $((GPU_COUNT - 1)))
+    export CUDA_VISIBLE_DEVICES
+fi
+
+mkdir -p pbs/logs results/v0_eval
+exec > "pbs/logs/v0_eval.${PBS_JOBID}.log" 2>&1
+
+echo "Job: ${PBS_JOBID}  Node: $(hostname)  GPU: ${CUDA_VISIBLE_DEVICES:-unset}"
+nvidia-smi -L
+
+# STEPS / LIMIT / VAL_N pass through from qsub -v (defaults: "50 100 150", all, 12).
+echo "=== v0 eval (locked protocol: temp1.0/top_p1.0/top_k-1/min_p0/avg@${VAL_N:-12}) ==="
+echo "    STEPS='${STEPS:-50 100 150}'  LIMIT='${LIMIT:-all}'  VAL_N='${VAL_N:-12}'"
+bash scripts/run_v0_eval.sh
+rc=$?
+echo "=== exit code: ${rc} ==="
+
+echo "=== side-by-side summary (base | OPSD | v0) ==="
+"$HOME/.conda/envs/opsd/bin/python" scripts/summarize_v0.py || true
+echo "=== DONE ==="
+exit $rc
