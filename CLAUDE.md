@@ -124,3 +124,11 @@ semantics, and reproduction risks.
   Only when both hold is a run real.
 - **If terminal echo and git disagree, stop and report immediately.** Do not
   keep building on an unverified state — surface the contradiction first.
+
+## 8. Reporting language
+
+- **All user-facing reports are written in Chinese (中文).** This covers status
+  updates, summaries, explanations, and any prose addressed to the user.
+- **Keep code, commands, file paths, identifiers, and established technical terms
+  in English** (e.g. `git push`, `qsub`, `avg@12`, `OPSDGatedTrainer`, ΔV).
+  Do not translate them — mixed Chinese prose with English tokens is the norm.
