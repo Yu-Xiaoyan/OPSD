@@ -132,3 +132,34 @@ the published method; Tier 2 tests the dynamic-loop hypothesis. Four outcomes:
 | **T1 negative, T2 positive** | Leakage needs the dynamic teacher-student feedback loop; both paper and repo are protected by the **fixed teacher** — fixed-teacher is then the single strongest suppressor. Bisection focuses on the remaining knobs *on top of* T2. |
 | **both positive** | Follow the T1 branch; T2 serves as an intensity/upper-bound control. |
 | **both negative** | Escalate to 8B (Tier-1 config first). If still clean, report honest non-reproduction; residual gap to RLSD (VL model / its data / its implementation) is the reproducibility boundary, tabled alongside this genealogy. |
+
+---
+
+## 6. RLSD reproduced config (VERIFIED against RLSD §5.1 + appendix A.4)
+
+Fetched and cross-checked against the RLSD paper (2604.03128v2). Values are the
+paper's own; "NOT DISCLOSED" = the text does not state it (no inference).
+
+| item | RLSD (verified) | vs our Tier 1 |
+|---|---|---|
+| teacher policy | **periodic sync every 10 steps** (hybrid; their appendix A.4 self-classification) | Tier 1 = frozen initial policy |
+| privileged info | **235B thinking traces** | Tier 1 = dataset reference `solution` |
+| dataset | **MMFineReason hard subset** (kept only where a 4B model is all-wrong) | Tier 1 = Openthoughts_math_30k |
+| learning rate | **1e-5** | Tier 1 = 5e-6 |
+| generation length | **4096** | Tier 1 = 2048 |
+| divergence clip | **none** (VERL self-implementation) | Tier 1 = 0 (matches: no clip) |
+| teacher guard text | **none** (VERL self-implementation) | Tier 1 = paper v1 mild guard |
+| full-finetune vs LoRA | **NOT DISCLOSED** | Tier 1 = LoRA |
+
+**Correction to our earlier inference.** Before fetching the RLSD text we inferred
+its teacher was *dynamic* (fully co-updating). The verified value is **periodic
+sync every 10 steps** — a *hybrid* between frozen and dynamic, not fully dynamic.
+The earlier "dynamic teacher" inference is hereby corrected to "periodic 10-step
+sync". Our Tier 2 (fully dynamic, no sync) is therefore an *upper-bound* probe
+that is even more aggressive than RLSD's actual teacher schedule.
+
+**Compatibility note (RLSD §8).** RLSD §8 promises a text-only experiment in a
+later version; RLSD's reported leakage is on multimodal data. Our text-domain
+Tier-1 result is therefore **complementary, not a head-to-head reproduction** —
+related-work wording should say "complements RLSD's multimodal observation with
+the first text-domain positive control", not "reproduces RLSD".

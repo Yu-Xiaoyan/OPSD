@@ -104,6 +104,18 @@ prompt 下为干净负结果，见 `probes/analysis/leakage_over_training.md`）
 
 ---
 
+### 理论衔接（RLSD Theorem 1）
+
+腐蚀探针可表述为 RLSD **Theorem 1** 不可约互信息项
+**I(Y_t; R | X, Y_<t)** 的**两点蒙特卡洛估计**：真解 R 与腐蚀解 R̃ 是 R 的两个
+取样，`JSD(T_R, T_R̃)` 估计 teacher 分布对 R 的敏感度，即该 token 处答案依赖特权
+信息 R 的经验量级。因此配置级腐蚀读数（`probes/analysis/bisect_attribution.md`：
+Tier 1 基线 **5.7×**、泄露轨迹 **14×**、repo 基线 **0.47**）可**重新表述为
+I(Y_t; R | X, Y_<t) 的经验量级** —— 泄露配置该项显著非零，repo 抑制配置趋近下界。
+出处：RLSD Theorem 1（不可约互信息项）+ 本工作腐蚀探针（两点估计的实现）。
+
+---
+
 ## 门控设计（v0）
 
 - **第一层 · 轨迹分诊**：verifier 判对错（零成本）+ 截断桶单独处理。
