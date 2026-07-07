@@ -1,0 +1,23 @@
+#!/bin/bash
+#PBS -N train_seed
+#PBS -P ds_ccds_wei.lu
+#PBS -q gpu_ded
+#PBS -l select=1:ncpus=12:ngpus=3
+#PBS -l walltime=04:00:00
+#PBS -j oe
+set -euo pipefail
+module purge; module load anaconda/2025; module load cuda/13.1
+eval "$(/usr/local/anaconda2025/bin/conda shell.bash hook)"; conda activate opsd
+cd /home/xiaoyan.yu/projects/OPSD
+export PYTHONUNBUFFERED=1 HF_HUB_OFFLINE=1 DS_SKIP_CUDA_CHECK=1
+export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+unset CPATH C_INCLUDE_PATH CPLUS_INCLUDE_PATH
+if echo "${CUDA_VISIBLE_DEVICES:-}" | grep -q "GPU-"; then
+    GPU_COUNT=$(echo "${CUDA_VISIBLE_DEVICES}" | tr ',' '\n' | wc -l)
+    CUDA_VISIBLE_DEVICES=$(seq -s, 0 $((GPU_COUNT - 1))); export CUDA_VISIBLE_DEVICES
+fi
+mkdir -p pbs/logs
+exec > "pbs/logs/train_seed_${GATED:-v0}_s${SEED}.${PBS_JOBID}.log" 2>&1
+echo "Job ${PBS_JOBID}  SEED=${SEED}  GATED=${GATED:-yes}  Node $(hostname)"; nvidia-smi -L; df -h ~|tail -1
+bash scripts/run_train_seed.sh
+echo "=== exit ${?} DONE ==="
