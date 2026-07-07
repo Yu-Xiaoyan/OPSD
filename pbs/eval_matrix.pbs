@@ -1,0 +1,45 @@
+#!/bin/bash
+#PBS -N eval_matrix
+#PBS -P ds_ccds_wei.lu
+#PBS -q gpu_ded
+#PBS -l select=1:ncpus=12:ngpus=3
+#PBS -l walltime=08:00:00
+#PBS -j oe
+
+# 通用 eval 矩阵 PBS wrapper。参数经 qsub -v 传入（逗号分隔避免空格）：
+#   qsub -v MODEL_DIR=/path,TAG=v0,OUT=results/v0_eval,DATASETS=math500,STEPS=50,LIMIT=25,VAL_N=12 pbs/eval_matrix.pbs
+# 详见 scripts/run_eval_matrix.sh。
+set -uo pipefail
+
+module purge
+module load anaconda/2025
+module load cuda/13.1
+eval "$(/usr/local/anaconda2025/bin/conda shell.bash hook)"
+conda activate opsd
+
+cd /home/xiaoyan.yu/projects/OPSD
+export PYTHONUNBUFFERED=1
+export HF_HUB_OFFLINE=1
+export NCCL_P2P_DISABLE=1
+export DS_SKIP_CUDA_CHECK=1
+unset CPATH C_INCLUDE_PATH CPLUS_INCLUDE_PATH
+
+if echo "${CUDA_VISIBLE_DEVICES:-}" | grep -q "GPU-"; then
+    GPU_COUNT=$(echo "${CUDA_VISIBLE_DEVICES}" | tr ',' '\n' | wc -l)
+    CUDA_VISIBLE_DEVICES=$(seq -s, 0 $((GPU_COUNT - 1)))
+    export CUDA_VISIBLE_DEVICES
+fi
+
+mkdir -p pbs/logs
+exec > "pbs/logs/eval_matrix.${PBS_JOBID}.log" 2>&1
+
+echo "Job: ${PBS_JOBID}  Node: $(hostname)"
+nvidia-smi -L
+echo "MODEL_DIR='${MODEL_DIR:-}'  TAG='${TAG:-}'  OUT='${OUT:-}'  DATASETS='${DATASETS:-}'  STEPS='${STEPS:-}'  LIMIT='${LIMIT:-all}'  VAL_N='${VAL_N:-12}'"
+
+t0=$(date +%s)
+bash scripts/run_eval_matrix.sh
+rc=$?
+echo "=== exit code: ${rc}  elapsed: $(( ($(date +%s)-t0)/60 )) min ==="
+echo "=== DONE ==="
+exit $rc
