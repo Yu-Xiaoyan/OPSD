@@ -2,11 +2,11 @@
 #PBS -N train_seed
 #PBS -P ds_ccds_wei.lu
 #PBS -q gpu_ded
-#PBS -l select=1:ncpus=12:ngpus=3
+#PBS -l select=1:ncpus=8:ngpus=2
 #PBS -l walltime=04:00:00
 #PBS -j oe
-# multi-seed 训练(2b),自包含。冻结口径同 scripts/run_v0_main.sh(含两处 grad_accum),
-# 仅参数化: qsub -v SEED=1,GATED=yes pbs/train_seed.pbs
+# multi-seed 训练(2b),自包含,2 卡版。global batch 保持 30(=2 proc × pd5 × ga3),
+# 与 seed42(3×5×2=30)可比。参数化: qsub -v SEED=1,GATED=yes pbs/train_seed.pbs
 #   SEED 必填; GATED yes->--gated/qwen31b_v0_s{SEED}/opsd-v0; no->qwen31b_opsd_s{SEED}/opsd-repro
 set -euo pipefail
 module purge; module load anaconda/2025; module load cuda/13.1
@@ -25,12 +25,12 @@ else GATE_ARG=""; RC="qwen31b_opsd_s${SEED}"; WB="opsd-repro"; fi
 PORT=$((12980+SEED))
 mkdir -p pbs/logs
 exec > "pbs/logs/train_${RC}.${PBS_JOBID}.log" 2>&1
-echo "Job ${PBS_JOBID} SEED=${SEED} GATED=${GATED} RC=${RC} $(hostname)"; nvidia-smi -L; df -h ~|tail -1
-accelerate launch --config_file accelerate.yaml --num_processes 3 --gradient_accumulation_steps 2 \
+echo "Job ${PBS_JOBID} SEED=${SEED} GATED=${GATED} RC=${RC} 2gpu gb30 $(hostname)"; nvidia-smi -L; df -h ~|tail -1
+accelerate launch --config_file accelerate.yaml --num_processes 2 --gradient_accumulation_steps 3 \
   --main_process_port $PORT opsd_train.py \
   --model_name_or_path /home/xiaoyan.yu/models/Qwen3-1.7B $GATE_ARG --seed $SEED \
   --learning_rate 5e-6 --max_grad_norm 0.1 --per_device_train_batch_size 5 \
-  --gradient_checkpointing --gradient_accumulation_steps 2 \
+  --gradient_checkpointing --gradient_accumulation_steps 3 \
   --output_dir /home/xiaoyan.yu/opsd_outputs/ --run_config $RC \
   --num_train_epochs 30 --max_steps 150 --max_completion_length 1024 --save_steps 25 \
   --logging_steps 2 --attn_implementation flash_attention_2 --torch_dtype bfloat16 \
