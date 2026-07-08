@@ -54,3 +54,13 @@ reason-first 两阶段），仅改 Reference 段内容以**隔离"特权内容"�
 
 ## 纪律
 冻结纪律在 gated 格内继续（门控超参一字不动）。M1–M3 probe（`31291`）与 ckpt50 eval 不受影响。
+
+## 四格判读预期（据 M1–M4 结论更新；结果前锁定）
+
+- **主效应看特权轴**（answer-only vs solution）。v1 的假设是特权**形态**问题，主效应应出现在这一轴。
+- **门控轴预期为小效应**。M1（门控与 conflict 轴正交，AUC 0.49）、M2（微效 +2.2%）、M4（剂量 4.0%）
+  三重确认 reweighting 不打 conflict 病灶 → 预期 gated 相对 ungated 的增量很小。
+- **P1 若命中，归因必须分解为两部分报告，不得整体归给门控**：
+  1. **特权主效应** = mean(answer 两格) − mean(solution 两格)；
+  2. **门控增量** = (answer: gated − ungated)，并与 (solution: gated − ungated) 对照以检验交互项。
+- P2（两种特权下 gated ≥ ungated）与 P3（answer-only 在 hard 层不劣于 solution）判读不变。

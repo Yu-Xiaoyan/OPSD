@@ -58,3 +58,26 @@ token 级仅 **~7.8%**；其中还需再乘"V-drop(ΔV<0)且 w<0.5"的子集比�
 - **M1+M2+M3**：1 卡短作业（wrong 桶 rollout 上重跑 teacher/student forward，抽 per-token
   teacher entropy/top-2、logit 层梯度、单步更新前后锚集 p(y*|x)）。预算与脚本见下一步，等发令。
 - M4 的 wrong 桶内 w<0.5 精确子集比例，随 M1 的 ΔV 一并回填。
+
+## M1 / M2 结果 + M4 剂量终值（probe job `31291`，1 卡）
+
+| 项 | 预注册预期 | 实测 | 判定 |
+|---|---|---|---|
+| **M1** | 门控低权重 ↔ teacher 高双峰，显著正相关 | spearman(w,top2)=**0.019**；spearman(w,entropy)=**0.022**；AUC(低w→高top2)=**0.489**；n=14,449 token | **不成立（NULL）** |
+| **M2** | v0 加权下碎裂度下降 | 相干比 ‖Σw·g‖/Σw‖g‖：uniform **0.1429** → v0 **0.1460**（+2.2% 相对）；75% rollout 改善 | 方向支持，**幅度可忽略** |
+| **M4 剂量** | X 小（3–5%） | wrong 桶内有效移除 **51.7%**；`Σ_wrong(1−w_t)/总质量` = **4.0%** | **命中** |
+| M3 | v0 更新 ΔV ≥ OPSD | 旧结果四项全 0 = **probe bug**（measure 时 `disable_adapter` → 量的是 base，ΔV 构造性为 0） | 无效，已修（adapter-on），job `31490` 重跑 |
+
+### 判读（定稿）
+
+**门控作用于 outcome 轴（ΔV），与 conflict 轴（teacher 分布双峰性）实测正交**——AUC 0.49，等同抛硬币。
+连同 **M2 微效**（降权只压掉约 2% 的冲突项，相干比本身仅 0.14，高度碎裂依旧）与 **M4 剂量 4%**，
+三者构成 **"reweighting 不打 conflict 病灶" 的三重确认**，与 TRD 的结构论断
+（*reweighting 在结构上不治 prefix failure*）**交叉验证**。
+
+即：v0 的门控**病灶定位在另一根轴上**——它按结果似然（ΔV）降权，而 TRD 所指的病灶是 teacher 分布的
+冲突（bimodal mixture）。两轴正交，故门控既不识别冲突位置（M1），也只能微弱削减冲突项（M2），
+且可及的监督质量本就只有 4%（M4）。**性能中性由此获得完整解释：靶点错轴 + 剂量极小。**
+
+**caveat（保留，不用于软化结论）**：双峰性以 top-2 质量比 / entropy 度量，teacher 用直接特权代理。
+若认为该度量未捕捉 TRD 的 bimodal mixture，需换度量重测。**但按预注册的度量，结论就是 NULL。**
