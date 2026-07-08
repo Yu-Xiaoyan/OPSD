@@ -148,24 +148,14 @@ def main():
     json.dump(out, open(a.out,"w"), indent=2)
     print("[saved]",a.out,flush=True)
 
-def _anchor_V(model, tok, items, dev):
-    vals=[]
-    for x in items:
-        prob=x["problem"] if "problem" in x else x.get("problem","")
-        gt=str(x.get("gt_answer", x.get("Answer","")))
-        ids=x.get("completion_token_ids")
-        with torch.no_grad(), model.disable_adapter() if False else torch.no_grad():
-            # 用 student(当前 adapter)对答案似然打分: V(end)=log p(y*|student_prompt+rollout or problem)
-            pass
-    return vals
-
 def run_m3(student, tok, W, anchors, tau, lr, dev):
     # 双锚: in-batch(W 自身 rollout 的 V) + held-out(anchors 的 V). 两组: OPSD(uniform) vs v0(gated) 单步更新.
     import copy
     def measure(model):
         # in-batch: W rollouts 的 V(end); held-out: anchors 的 V(end)(用其 Answer, 无 rollout 则跳过打分位置=末端)
         ib=[]; ho=[]
-        with torch.no_grad(), model.disable_adapter():
+        # 必须在 adapter 启用下测量：否则量的是 base 模型，LoRA 单步更新不改变它 → ΔV 恒 0（旧 bug）
+        with torch.no_grad():
             for r in W:
                 v=answer_likelihood_probe(model,tok,r["problem"],r["completion_token_ids"],str(r["gt_answer"]),
                                           checkpoint_positions=[len(r["completion_token_ids"])])

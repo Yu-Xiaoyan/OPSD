@@ -101,16 +101,21 @@ def answer_likelihood_probe(model, tokenizer, problem, rollout_token_ids,
         attn[i, :len(s)] = 1
     input_ids, attn = input_ids.to(device), attn.to(device)
 
-    with torch.no_grad():
-        logits = model(input_ids=input_ids, attention_mask=attn).logits.float()
-
+    # 存储纪律 §4（内存版）：禁止整块 [ckpts × T × V] 的 float 物化。
+    # 逐 checkpoint 流式：forward -> 仅在答案位置切片取 log-prob -> 立即释放 logits。
+    # 每条序列按其真实长度裁掉 padding，峰值内存 = 单条 [1, L_i, V]（模型 dtype）。
     ans_t = torch.tensor(answer_ids, device=device)
     V, per_tok = [], []
-    for i, start in enumerate(starts):
-        lp = torch.log_softmax(logits[i, start - 1:start - 1 + A, :], dim=-1)
-        tok_lp = lp.gather(-1, ans_t.unsqueeze(-1)).squeeze(-1)  # [A]
-        V.append(float(tok_lp.sum()))
-        per_tok.append([float(x) for x in tok_lp])
+    with torch.no_grad():
+        for i, start in enumerate(starts):
+            Li = len(seqs[i])
+            lg = model(input_ids=input_ids[i:i + 1, :Li],
+                       attention_mask=attn[i:i + 1, :Li]).logits
+            lp = torch.log_softmax(lg[0, start - 1:start - 1 + A, :].float(), dim=-1)
+            tok_lp = lp.gather(-1, ans_t.unsqueeze(-1)).squeeze(-1)  # [A]
+            V.append(float(tok_lp.sum()))
+            per_tok.append([float(x) for x in tok_lp])
+            del lg, lp, tok_lp
 
     V = np.asarray(V)
     return {
