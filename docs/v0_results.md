@@ -83,3 +83,23 @@ OPSD peak gain（参考，= ckpt100 − base）：**AIME24 +5.8 / AIME25 +8.1**�
 - **multi-seed**：v0 + OPSD 各 3 seeds（seed 42 已有，补 seed 1/2），eval 先跑
   AIME24/25 + MATH500 @ ckpt 50/100/150，报 mean±std。过夜串行。
 - **纪律**：结果全部落地前冻结 v0 一切超参与门控配置，不据本轮单 seed 数字调参。
+
+## T2 — multi-seed 结果（3 seeds {42,1,2}）
+
+Eval 完成 2026-07-08，锁定协议，完整性核验无 warn（val_n / temp / top_p 全对）。
+数据：seed42+base → `results/v0_eval` `results/repro_eval`；seed1/2 → `results/multiseed_eval`。
+复现：`python scripts/summarize_multiseed.py`。口径：AIME avg@12 / MATH500 avg@4，ckpt100+150，per-benchmark 不跨 N 平均。
+
+| benchmark | ckpt | OPSD | v0 | Δ(v0−OPSD) | base |
+|---|---|---|---|---|---|
+| AIME24 (avg@12) | 100 | 55.5±1.1 | 57.6±1.9 | +2.1 | 49.2 |
+| AIME24 (avg@12) | 150 | 56.1±1.9 | 56.8±0.7 | +0.6 | |
+| AIME25 (avg@12) | 100 | 41.8±1.8 | 40.9±1.3 | −0.8 | 35.0 |
+| AIME25 (avg@12) | 150 | 42.7±0.2 | 41.2±0.8 | −1.5 | |
+| MATH500 (avg@4) | 100 | 92.2±0.3 | 92.5±0.2 | +0.2 | 90.8 |
+| MATH500 (avg@4) | 150 | 92.0±0.6 | 92.6±0.1 | +0.6 | |
+
+**判读（诚实）：v0 相对 OPSD 无稳健优势。** AIME24 v0 微领先（ckpt100 +2.1≈1.5σ、ckpt150 +0.6 落噪声内）；
+AIME25 v0 微落后（−0.8 / −1.5，噪声量级）；MATH500 近乎并列（均 ~92%，base 90.8，接近天花板、判别力有限）。
+**多 seed 削弱了单 seed 的"AIME24 赢 / AIME25 输"分裂叙事**——差异多落在 seed 方差内，n=3 不足以做强统计声明。
+与预注册 P（已完全证伪）一致：v0 未展现机制性的持续增益。冻结纪律下，不据此调参。
