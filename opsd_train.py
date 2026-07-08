@@ -69,6 +69,10 @@ class CustomScriptArguments(ScriptArguments):
             "help": "Let the teacher model first rationalize (generate rationalization explictly) about the given reasoning first then act as teacher."
         },
     )
+    privilege_mode: str = field(
+        default="solution",
+        metadata={"help": "Teacher privilege content: 'solution' or 'answer' (\\boxed only). v1 experiment."},
+    )
     top_k_loss: int = field(
         default=0,
         metadata={
@@ -302,6 +306,7 @@ if __name__ == "__main__":
         tokenizer=tokenizer,
         max_length=training_args.max_length,
         reason_first=script_args.reason_first,
+        privilege_content=script_args.privilege_mode,
         student_thinking=script_args.student_thinking,
         teacher_thinking=script_args.teacher_thinking,
         transition_prompt_override=_override,

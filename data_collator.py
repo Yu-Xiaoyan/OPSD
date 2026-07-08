@@ -20,12 +20,14 @@ class SelfDistillationDataCollator:
         student_thinking=False,
         teacher_thinking=True,
         transition_prompt_override=None,
+        privilege_content="solution",
     ):
         self.tokenizer = tokenizer
         self.max_length = max_length
         self.reason_first = reason_first
         self.student_thinking = student_thinking
         self.teacher_thinking = teacher_thinking
+        self.privilege_content = privilege_content  # "solution" | "answer" (v1)
 
         # Prompt for reasoning about the solution before teaching
         self.reason_first_prompt = (
@@ -100,14 +102,26 @@ class SelfDistillationDataCollator:
                 # For now, create placeholder (will be replaced in training_step)
                 teacher_prompts.append("")  # Placeholder
             else:
-                # Original teacher prompt (unchanged)
-                teacher_user_message = (
-                    f"Problem: {problem}\n\n"
-                    f"Here is a reference solution to this problem:\n"
-                    f"=== Reference Solution Begin ===\n{solution}\n=== Reference Solution End ===\n"
-                    f"{self.transition_prompt}\n"
-                    f"Please reason step by step, and put your final answer within \\boxed{{}}."
-                )
+                if self.privilege_content == "answer":
+                    # answer-only privilege (v1): reference section = target answer only
+                    answer = feature.get("Answer", "")
+                    teacher_user_message = (
+                        f"Problem: {problem}\n\n"
+                        f"Here is the correct final answer to this problem:\n"
+                        f"=== Reference Answer Begin ===\n\\boxed{{{answer}}}\n=== Reference Answer End ===\n"
+                        f"The correct final answer is given above. Do not simply restate it. Using your own "
+                        f"independent step-by-step reasoning, derive this answer from the problem above.\n"
+                        f"Please reason step by step, and put your final answer within \\boxed{{}}."
+                    )
+                else:
+                    # solution privilege (original, unchanged)
+                    teacher_user_message = (
+                        f"Problem: {problem}\n\n"
+                        f"Here is a reference solution to this problem:\n"
+                        f"=== Reference Solution Begin ===\n{solution}\n=== Reference Solution End ===\n"
+                        f"{self.transition_prompt}\n"
+                        f"Please reason step by step, and put your final answer within \\boxed{{}}."
+                    )
                 teacher_messages = [{"role": "user", "content": teacher_user_message}]
 
                 # Apply chat template for teacher

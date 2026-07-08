@@ -1,0 +1,42 @@
+#!/bin/bash
+#PBS -N v1cell
+#PBS -P ds_ccds_wei.lu
+#PBS -q gpu_ded
+#PBS -l select=1:ncpus=8:ngpus=2
+#PBS -l walltime=06:00:00
+#PBS -j oe
+# v1 阶段1 一格训练。qsub -v PRIV=solution|answer,GATED=yes|no pbs/run_v1cell.pbs
+# 直接模板(reason_first 默认 False)、seed42、gb30(2x5x3)、150步、max_len 2048。
+set -euo pipefail
+module purge; module load anaconda/2025; module load cuda/13.1
+eval "$(/usr/local/anaconda2025/bin/conda shell.bash hook)"; conda activate opsd
+cd /home/xiaoyan.yu/projects/OPSD
+export PYTHONUNBUFFERED=1 HF_HUB_OFFLINE=1 DS_SKIP_CUDA_CHECK=1
+export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+unset CPATH C_INCLUDE_PATH CPLUS_INCLUDE_PATH
+if echo "${CUDA_VISIBLE_DEVICES:-}" | grep -q "GPU-"; then
+  n=$(echo "${CUDA_VISIBLE_DEVICES}"|tr ',' '\n'|wc -l); CUDA_VISIBLE_DEVICES=$(seq -s, 0 $((n-1))); export CUDA_VISIBLE_DEVICES
+fi
+: "${PRIV:?need PRIV}"; GATED="${GATED:-no}"
+pshort=$([ "$PRIV" = "answer" ] && echo ans || echo sol)
+if [ "$GATED" = "yes" ]; then GATE_ARG="--gated"; gshort=gated; else GATE_ARG=""; gshort=ungated; fi
+RC="qwen31b_v1_${pshort}_${gshort}"; PORT=$((13100 + RANDOM%400))
+mkdir -p pbs/logs
+exec > "pbs/logs/${RC}.${PBS_JOBID}.log" 2>&1
+echo "Job ${PBS_JOBID} PRIV=${PRIV} GATED=${GATED} RC=${RC} $(hostname)"; nvidia-smi -L; df -h ~|tail -1
+accelerate launch --config_file accelerate.yaml --num_processes 2 --gradient_accumulation_steps 3 \
+  --main_process_port $PORT opsd_train.py \
+  --model_name_or_path /home/xiaoyan.yu/models/Qwen3-1.7B $GATE_ARG --seed 42 \
+  --privilege_mode $PRIV \
+  --learning_rate 5e-6 --max_grad_norm 0.1 --per_device_train_batch_size 5 \
+  --gradient_checkpointing --gradient_accumulation_steps 3 \
+  --output_dir /home/xiaoyan.yu/opsd_outputs/ --run_config $RC \
+  --num_train_epochs 30 --max_steps 150 --max_completion_length 2048 --save_steps 25 \
+  --logging_steps 2 --attn_implementation flash_attention_2 --torch_dtype bfloat16 \
+  --max_length 20000 --beta 0 --use_vllm --vllm_mode colocate \
+  --vllm_gpu_memory_utilization 0.6 --vllm_tensor_parallel_size 1 \
+  --use_peft --lora_r 64 --lora_alpha 128 \
+  --lora_target_modules q_proj k_proj v_proj o_proj gate_proj up_proj down_proj \
+  --temperature 1.1 --top_p 0.95 --top_k 20 --lmbda 1 --fixed_teacher \
+  --jsd_token_clip 0.05 --wandb_project opsd-v1
+echo "=== exit $? DONE ==="
