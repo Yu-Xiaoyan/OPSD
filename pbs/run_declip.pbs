@@ -1,0 +1,41 @@
+#!/bin/bash
+#PBS -N declip
+#PBS -P ds_ccds_wei.lu
+#PBS -q gpu_ded
+#PBS -l select=1:ncpus=8:ngpus=2
+#PBS -l walltime=05:00:00
+#PBS -j oe
+# de-clip 第1步。qsub -v ARM=B pbs/run_declip.pbs
+# B = repo 冻结口径 + jsd_token_clip=0 (ungated, 1024, TM-off, solution 特权, seed42, gb30 2卡).
+# C/D 需 trainer 新代码(--declip_arm), 暂未接; 本脚本先支持 B.
+set -euo pipefail
+module purge; module load anaconda/2025; module load cuda/13.1
+eval "$(/usr/local/anaconda2025/bin/conda shell.bash hook)"; conda activate opsd
+cd /home/xiaoyan.yu/projects/OPSD
+export PYTHONUNBUFFERED=1 HF_HUB_OFFLINE=1 DS_SKIP_CUDA_CHECK=1
+export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+unset CPATH C_INCLUDE_PATH CPLUS_INCLUDE_PATH
+if echo "${CUDA_VISIBLE_DEVICES:-}" | grep -q "GPU-"; then
+  n=$(echo "${CUDA_VISIBLE_DEVICES}"|tr ',' '\n'|wc -l); CUDA_VISIBLE_DEVICES=$(seq -s, 0 $((n-1))); export CUDA_VISIBLE_DEVICES
+fi
+: "${ARM:?need ARM}"
+[ "$ARM" = "B" ] || { echo "ARM=$ARM 需要 C/D trainer 代码(未接), 止"; exit 2; }
+RC="qwen31b_declip_B_unclipped"; PORT=$((13500 + RANDOM%400))
+mkdir -p pbs/logs
+exec > "pbs/logs/${RC}.${PBS_JOBID}.log" 2>&1
+echo "Job ${PBS_JOBID} ARM=$ARM RC=$RC $(hostname)"; nvidia-smi -L; df -h ~|tail -1
+accelerate launch --config_file accelerate.yaml --num_processes 2 --gradient_accumulation_steps 3 \
+  --main_process_port $PORT opsd_train.py \
+  --model_name_or_path /home/xiaoyan.yu/models/Qwen3-1.7B --seed 42 \
+  --learning_rate 5e-6 --max_grad_norm 0.1 --per_device_train_batch_size 5 \
+  --gradient_checkpointing --gradient_accumulation_steps 3 \
+  --output_dir /home/xiaoyan.yu/opsd_outputs/ --run_config $RC \
+  --num_train_epochs 30 --max_steps 150 --max_completion_length 1024 --save_steps 25 \
+  --logging_steps 2 --attn_implementation flash_attention_2 --torch_dtype bfloat16 \
+  --max_length 20000 --beta 0 --use_vllm --vllm_mode colocate \
+  --vllm_gpu_memory_utilization 0.6 --vllm_tensor_parallel_size 1 \
+  --use_peft --lora_r 64 --lora_alpha 128 \
+  --lora_target_modules q_proj k_proj v_proj o_proj gate_proj up_proj down_proj \
+  --temperature 1.1 --top_p 0.95 --top_k 20 --lmbda 1 --fixed_teacher \
+  --jsd_token_clip 0 --wandb_project opsd-declip
+echo "=== exit $? DONE ==="
