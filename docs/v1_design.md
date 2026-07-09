@@ -88,7 +88,8 @@ reason-first 两阶段），仅改 Reference 段内容以**隔离"特权内容"�
 ## 第 1 步（4 训练 run，seed 42；基底=repo 冻结口径但 `jsd_token_clip=0`，其余全不动）
 - **A) clipped 基线** = 已有主复现 run（`qwen31b_repro_3xh200_gb30`，复用不重跑）。
 - **B) unclipped 裸跑**：clip=0，无替代机制。
-- **C) unclipped + 腐蚀门降权**：clip=0；每 rollout 一次腐蚀 forward（T_S̃，无关腐蚀答案，复用 `probes/corrupt_answers.py`）；逐 token `c_t = JSD(T_S, T_S̃)`；权重 `w_t = exp(-c_t/ρ)`，**ρ=0.0007**（诊断集 c_t 90 分位；出处 `probes/data/diag2x2_shard0.jsonl`，187 rollout/171,388 token；非零 37%、max 0.66；不调参）。
+- **C) unclipped + 腐蚀硬门**：clip=0；每 rollout 一次腐蚀 forward（T_S̃，无关腐蚀答案，复用 `probes/corrupt_answers.py`）；逐 token `c_t = JSD(T_S, T_S̃)`；**硬门 `w_t = 1[c_t ≤ ρ]`**（腐蚀敏感位直接扔掉，不参与蒸馏）。**ρ=0.0007**（诊断集 c_t 90 分位；出处 `probes/data/diag2x2_shard0.jsonl`，187 rollout/171,388 token；非零 37%、max 0.66；不调参）。
+  - **修正说明**：原 `exp(-c_t/ρ)` 在 c_t 极偏分布（37% 非零、ρ 极小）下实为硬阈值，故改为显式硬门 `1[c_t ≤ ρ]`——与 D 的触发条件 `c_t > ρ` **完全对齐**，两臂差异单变量化（C=扔掉敏感位，D=敏感位学边缘化目标），不引入额外超参。
 - **D) unclipped + 特权边缘化**：clip=0；腐蚀敏感位置（`c_t > ρ`）蒸馏目标替换为 `P̄_T = 0.5·[P_T(·|r)+P_T(·|r̃)]`（renormalize 后 forward KL），其余位置不变——泄露成分被**边缘化积掉**而非降权回避。
 - **实现**：C/D 共享同一次腐蚀 forward（每步 +1 teacher forward，成本按 96.6ms 基准）；D 的目标混合在 logits 层做 log-mean-exp，**禁止物化全词表中间量**（流式纪律 §4）。走 v1 分支，`py_compile` + 20 步 smoke 后再投正式。
 - **监测**：泄露检测器（keyword + early-emission，每 5 步 dump）+ 每 25 步 ckpt 的腐蚀质量（config 级）。
