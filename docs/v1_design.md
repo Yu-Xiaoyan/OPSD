@@ -103,3 +103,27 @@ reason-first 两阶段），仅改 Reference 段内容以**隔离"特权内容"�
 
 ## 排程
 第0步 eval 立即挂；第1步 B/C/D 三训练（A 复用）+ 依赖 eval 过夜串行。预算自估：3 训练+eval ≤ 一夜半则直接提交，超出报预算等裁决。GPU 现 8/8 满，排队等卡。
+
+## 第0步 Tier1 结果（如实入档；⚠️ regime caveat，不作 P-a 判据）
+
+`paper_opsd_v1`（无 clip + TM-on + 2048 + 温和 guard，多旋钮混杂）相对 base：
+
+| ckpt | AIME24 | AIME25 | MATH500 |
+|---|---|---|---|
+| 100 | 38.3 (**−10.8**) | 28.3 (**−6.7**) | 86.2 (**−4.6**) |
+| 150 | 42.5 (**−6.7**) | 28.6 (**−6.4**) | 86.6 (**−4.3**) |
+
+**三 benchmark 全部低于 base**，ckpt100→150 仅微升。**不作 P-a 判据**（多旋钮混杂，非单变量）——P-a 的干净检验是第1步 B(unclipped/1024/TM-off) vs A(clipped)，B 的 eval 已挂（job `32629/32630`）。
+
+## 第1步 B 臂：泄露扫描（P-b 行为侧，零 GPU）
+
+B(unclipped) 训练 rollout 泄露 vs A(repo, `leakage_over_training.md`)：
+
+| 通道 | A (clipped) | B (unclipped) |
+|---|---|---|
+| keyword | 0.27% | 0.27%（持平） |
+| early-emission clean | 1.28%, strong=0 | **1.52%, strong=5** |
+
+- **B 的 early-emission 略升 + strong 从 0→5**：方向与"clip 是泄露抑制器"一致，但幅度温和——repo 剩余抑制器（TM-off/1024/guard）基本兜住行为泄露。
+- 形态注记：B 的 early 反而 ≤100 步更高（1.65% vs >100步 1.26%），非"100 步后涌现"。
+- **P-b 另一半（腐蚀质量/分布侧泄露）**需 teacher forward，随 C/D 批一起（共享腐蚀 forward）。

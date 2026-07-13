@@ -34,3 +34,13 @@ Please reason step by step, and put your final answer within \boxed{}.
 - student prompt 不变（`Problem: {problem}\n\nPlease reason step by step, and put your final answer within \boxed{}.`）。
 - gated 格门控配置 = 冻结 v0（τ=7.63 等，一字不动）。
 - **待确认岔口**：solution 格是否改回 reason-first 两阶段（见 `docs/v1_design.md`）。
+
+## paper-OPSD v1 配置在本环境的结果侧注脚（2026-07-10）
+
+`qwen31b_paper_opsd_v1`（无 clip + TM-on + 2048 + 温和 guard）在本环境实测：
+- **性能**：ckpt100/150 三 benchmark（AIME24/25、MATH500）**全部低于未训练 base**（−4-11pt）；
+- **泄露**：非零、且随训练涌现（此配置的行为/分布泄露高于 repo 演化版）。
+
+→ **两个维度都劣于 repo 演化版**（repo 主复现相对 base 为正、行为泄露近零）。这为
+"**仓库为何从 paper-OPSD 静默演化到当前 repo 口径**（clip 0.05 + TM-off + 1024 + guard）"
+提供了**结果侧注脚**：那些演化不是随意的，而是把一个"低于 base + 泄露"的配置调成了"高于 base + 泄露near-零"。
