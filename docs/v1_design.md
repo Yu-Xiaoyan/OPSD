@@ -127,3 +127,28 @@ B(unclipped) 训练 rollout 泄露 vs A(repo, `leakage_over_training.md`)：
 - **B 的 early-emission 略升 + strong 从 0→5**：方向与"clip 是泄露抑制器"一致，但幅度温和——repo 剩余抑制器（TM-off/1024/guard）基本兜住行为泄露。
 - 形态注记：B 的 early 反而 ≤100 步更高（1.65% vs >100步 1.26%），非"100 步后涌现"。
 - **P-b 另一半（腐蚀质量/分布侧泄露）**需 teacher forward，随 C/D 批一起（共享腐蚀 forward）。
+
+## P-a 判定：证伪 —— 机制假设撤回
+
+A(clipped) vs B(unclipped)，单变量，均 1024/TM-off/solution/seed42：
+
+| benchmark | A c100 | B c100(Δ) | A c150 | B c150(Δ) | base |
+|---|---|---|---|---|---|
+| AIME24 | 55.0 | 54.4(−0.6) | 54.2 | 48.1(−6.1) | 49.2 |
+| AIME25 | 43.1 | 34.7(−8.3) | 42.8 | 33.3(−9.4) | 35.0 |
+| MATH500 | 92.4 | 89.9(−2.5) | 91.3 | 89.8(−1.5) | 90.8 |
+
+**B ≤ A 全部 6 格成立，且越训越差（AIME25 的 B 跌破 base）→ 按预注册 P-a 证伪。**
+
+**撤回**：机制假设「`jsd_token_clip` 是梯度死区 → 拿掉会释放性能」**不成立，撤回**；据此提出的
+「五阴性统一解释（clip 掐死高 KD 教学信号）」**随之撤回**。相反：本 regime 下 **clip 是把模型
+托住的关键**——去 clip → teacher 高 KD 项（style/copying/泄露位）梯度全放开 → 训练被拽向
+off-policy 文体 → 性能崩。与 B 泄露扫描（strong 0→5）、Tier1（无 clip paper_opsd 低于 base）互证。
+
+**regime 条件性（关键限定）**：
+- **TRD 报告 unclipped 胜**：4B/8B + synced teacher + 38k 长度；
+- **我方 unclipped 崩**：1.7B + frozen teacher + 1024。
+- → **clip 的净值是 regime 条件性的**，不是普适结论。B≤A 只在"我方小模型/frozen/短长度"成立。
+
+**C/D 去向**：P-a 证伪 B 路线 ≠ C/D 必失败（C/D 是"去 clip 但控泄露/文体"的精准替代，正为救 B 的崩塌而设）。
+但是否投 C/D 正式 run，改由**一次分布级腐蚀质量探针裁决**（见下节，预注册判读）。
