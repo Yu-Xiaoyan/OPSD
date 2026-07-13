@@ -63,6 +63,10 @@ class CustomScriptArguments(ScriptArguments):
             "Values > 0 encourage the model to use new tokens, while values < 0 encourage the model to repeat tokens."
         },
     )
+    declip_arm: str = field(
+        default="",
+        metadata={"help": "de-clip arm: '' off, 'C' corruption hard gate, 'D' privilege marginalization. Needs jsd_token_clip=0."},
+    )
     reason_first: bool = field(
         default=False,
         metadata={
@@ -295,7 +299,13 @@ if __name__ == "__main__":
         _override = _override.replace("\\n", "\n")
     # v0 gating: swap in the gated collator + trainer (JSD path). Default OFF ->
     # byte-for-byte OPSD baseline.
-    if script_args.gated:
+    _declip_kw = {}
+    if script_args.declip_arm:
+        from v0_collator import DeclipDataCollator
+        from declip_trainer import OPSDDeclipTrainer
+        CollatorCls, TrainerCls = DeclipDataCollator, OPSDDeclipTrainer
+        _declip_kw = {"declip_arm": script_args.declip_arm}
+    elif script_args.gated:
         from v0_collator import GatedDataCollator
         from v0_trainer import OPSDGatedTrainer
         CollatorCls, TrainerCls = GatedDataCollator, OPSDGatedTrainer
@@ -319,6 +329,7 @@ if __name__ == "__main__":
         eval_dataset=None,
         processing_class=tokenizer,
         data_collator=data_collator,
+        **_declip_kw,
         peft_config=get_peft_config(model_args),
         use_thinking_machines_loss=script_args.use_tinker_loss,
         fixed_teacher=script_args.fixed_teacher,

@@ -19,3 +19,13 @@ class GatedDataCollator(SelfDistillationDataCollator):
         result["gt_answers"] = [str(f.get("Answer", "")) for f in features]
         result["problems"] = [f.get("problem", "") for f in features]
         return result
+
+
+class DeclipDataCollator(SelfDistillationDataCollator):
+    """de-clip C/D 臂：额外透传 gt_answers / problems / solutions，供腐蚀门蒸馏。"""
+    def __call__(self, features):
+        result = super().__call__(features)
+        result["gt_answers"] = [str(f.get("Answer", "")) for f in features]
+        result["problems"] = [f.get("problem", "") for f in features]
+        result["solutions"] = [f.get("solution", "") for f in features]
+        return result
