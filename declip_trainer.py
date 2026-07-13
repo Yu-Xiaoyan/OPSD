@@ -51,35 +51,38 @@ class OPSDDeclipTrainer(OPSDTrainer):
         mask = shifted != -100
         problems = inputs.get("problems"); gts = inputs.get("gt_answers"); sols = inputs.get("solutions")
         dev = inputs["student_input_ids"].device
+
+        # === 单次批量 student forward（带 grad，唯一梯度图；DeepSpeed 只规约一次）===
+        out_s = model(input_ids=inputs["student_input_ids"],
+                      attention_mask=inputs["student_attention_mask"])
+        student_logits = out_s.logits[:, sp_len - 1:-1, :]   # [B, gen_len, V] 预测 rollout token
+
         B = sampled.shape[0]
         total = torch.zeros((), device=dev); ntok = 0
-        n_sens = 0; n_all = 0; probe_ms = 0.0
+        n_sens = 0; n_all = 0
         for i in range(B):
-            ids = sampled[i][mask[i]].tolist()
-            if len(ids) < 4:
+            m_i = mask[i]
+            if int(m_i.sum()) < 4:
                 continue
+            ids = sampled[i][m_i].tolist()
+            S = student_logits[i][m_i].float()               # [T, V] —— 批量图的切片
             problem = problems[i] if problems else ""
             gt = str(gts[i]) if gts else ""
             sol = sols[i] if sols else ""
             if not sol or not gt:
                 continue
-            # student 前向（带 grad）
-            sp = build_student_prompt_text(tok, problem, student_thinking=False)
-            sp_ids = tok(sp, return_tensors="pt").input_ids[0].tolist()
-            s_in = torch.tensor([sp_ids + ids], device=dev)
-            S = model(input_ids=s_in, attention_mask=torch.ones_like(s_in)).logits[:, len(sp_ids) - 1:-1, :].float().squeeze(0)
-            # teacher 前向（no_grad, base）: correct + corrupt
+            # teacher forward（no_grad, base）: correct + corrupt，不建梯度图 -> 不触发规约
             with torch.no_grad(), teacher_mode(model):
                 TS, _, _ = forward_rollout_logits(model, tok, build_teacher_prompt_text(tok, problem, sol), ids)
                 corr = corrupt_answer(gt, n=1, seed=i)
                 if corr:
-                    csol, _ = corrupt_solution(sol, gt, corr[0])
+                    csol, nrep = corrupt_solution(sol, gt, corr[0])
                     TSt, _, _ = forward_rollout_logits(model, tok, build_teacher_prompt_text(tok, problem, csol), ids)
                 else:
                     TSt = TS
             T = min(S.shape[0], TS.shape[0], TSt.shape[0])
-            S = S[:T]; TS = TS[:T]; TSt = TSt[:T]
-            c_t = token_jsd(TS, TSt)[:T].to(dev)          # [T] 腐蚀敏感度
+            S = S[:T]; TS = TS[:T].to(dev); TSt = TSt[:T].to(dev)
+            c_t = token_jsd(TS, TSt)[:T].to(dev)             # [T] 腐蚀敏感度
             sens = c_t > self.declip_rho
             n_sens += int(sens.sum()); n_all += T
             logS = F.log_softmax(S, dim=-1)
@@ -87,22 +90,24 @@ class OPSDDeclipTrainer(OPSDTrainer):
             if self.declip_arm == "C":
                 keep = ~sens
                 if int(keep.sum()) == 0:
-                    del S, TS, TSt; continue
-                kl = (logTS.exp() * (logTS - logS)).sum(-1)   # forward KL(T_S‖S) [T]
+                    del S, TS, TSt, logS, logTS, c_t; continue
+                kl = (logTS.exp() * (logTS - logS)).sum(-1)  # forward KL(T_S‖S) [T]
                 loss_i = kl[keep].mean(); nt = int(keep.sum())
-            else:  # D: 敏感位用边缘化目标
+            else:  # D: 敏感位换边缘化目标
                 logTSt = F.log_softmax(TSt, dim=-1)
-                log_marg = torch.logsumexp(torch.stack([logTS, logTSt], 0), 0) + math.log(0.5)  # log 0.5(P_T+P_T̃)
-                logT = torch.where(sens.unsqueeze(-1), log_marg, logTS)   # 非敏感位=T_S
+                log_marg = torch.logsumexp(torch.stack([logTS, logTSt], 0), 0) + math.log(0.5)
+                logT = torch.where(sens.unsqueeze(-1), log_marg, logTS)
                 kl = (logT.exp() * (logT - logS)).sum(-1)
                 loss_i = kl.mean(); nt = T
                 del logTSt, log_marg, logT
             total = total + loss_i * nt; ntok += nt
             del S, TS, TSt, logS, logTS, c_t
+
         loss = total / max(1, ntok)
         mode = "train" if model.training else "eval"
         self._metrics[mode]["declip/sens_frac"].append(n_sens / max(1, n_all))
         self._metrics[mode]["declip/n_examples"].append(float(B))
+        del out_s, student_logits
         torch.cuda.empty_cache()
         if return_outputs:
             class _O:
