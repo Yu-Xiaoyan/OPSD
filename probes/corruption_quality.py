@@ -6,7 +6,8 @@ teacher 固定 = base（A/B 通用），差异只来自各自 generation dump �
 """
 import argparse, json, glob, os, re, sys
 import numpy as np, torch
-HERE=os.path.dirname(os.path.abspath(__file__)); sys.path.insert(0,HERE)
+HERE=os.path.dirname(os.path.abspath(__file__)); ROOT=os.path.dirname(HERE)
+sys.path.insert(0,HERE); sys.path.insert(0,ROOT)   # ROOT: scoring.py 需 import data_collator
 from scoring import build_teacher_prompt_text, forward_rollout_logits
 from divergence import token_jsd
 from corrupt_solution import corrupt_solution
