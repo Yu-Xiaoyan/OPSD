@@ -77,6 +77,12 @@ class CustomScriptArguments(ScriptArguments):
         default="solution",
         metadata={"help": "Teacher privilege content: 'solution' or 'answer' (\\boxed only). v1 experiment."},
     )
+    v2_enable: bool = field(default=False, metadata={"help": "v2 三路分诊+错支手术 trainer. Needs jsd_token_clip=0? no—keeps repo clip."})
+    v2_use_B: bool = field(default=True, metadata={"help": "v2: 全局漂移扣除 (subtract gamma*log pi_S0)."})
+    v2_use_cp: bool = field(default=True, metadata={"help": "v2: C'-1 δ 加权重构 (wrong 支)."})
+    v2_omega: float = field(default=1.0, metadata={"help": "v2: correct 支 loss 权重 ω."})
+    v2_lambda: float = field(default=1.0, metadata={"help": "v2: C'-1 δ 权重 λ."})
+    v2_gamma: float = field(default=0.5, metadata={"help": "v2: 漂移扣除强度 γ."})
     top_k_loss: int = field(
         default=0,
         metadata={
@@ -300,7 +306,14 @@ if __name__ == "__main__":
     # v0 gating: swap in the gated collator + trainer (JSD path). Default OFF ->
     # byte-for-byte OPSD baseline.
     _declip_kw = {}
-    if script_args.declip_arm:
+    if script_args.v2_enable:
+        from v0_collator import DeclipDataCollator
+        from v2_trainer import OPSDv2Trainer
+        CollatorCls, TrainerCls = DeclipDataCollator, OPSDv2Trainer
+        _declip_kw = {"v2_use_B": script_args.v2_use_B, "v2_use_cp": script_args.v2_use_cp,
+                      "v2_omega": script_args.v2_omega, "v2_lambda": script_args.v2_lambda,
+                      "v2_gamma": script_args.v2_gamma}
+    elif script_args.declip_arm:
         from v0_collator import DeclipDataCollator
         from declip_trainer import OPSDDeclipTrainer
         CollatorCls, TrainerCls = DeclipDataCollator, OPSDDeclipTrainer

@@ -1,0 +1,49 @@
+#!/bin/bash
+#PBS -N v2run
+#PBS -P ds_ccds_wei.lu
+#PBS -q gpu_ded
+#PBS -l select=1:ncpus=8:ngpus=2
+#PBS -l walltime=06:00:00
+#PBS -j oe
+# v2 三路分诊+错支手术. qsub -v ARM=main|noB|noCp|w05|len2048|w0[,SMOKE=1] pbs/run_v2.pbs
+# 冻结口径: clip 0.05, TM-off, solution, seed42, gb30 2卡. λ=1 γ=0.5. SMOKE=1 => 20步/不存盘.
+set -euo pipefail
+module purge; module load anaconda/2025; module load cuda/13.1
+eval "$(/usr/local/anaconda2025/bin/conda shell.bash hook)"; conda activate opsd
+cd /home/xiaoyan.yu/projects/OPSD
+export PYTHONUNBUFFERED=1 HF_HUB_OFFLINE=1 HF_DATASETS_OFFLINE=1 DS_SKIP_CUDA_CHECK=1
+export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+unset CPATH C_INCLUDE_PATH CPLUS_INCLUDE_PATH
+if echo "${CUDA_VISIBLE_DEVICES:-}" | grep -q "GPU-"; then
+  n=$(echo "${CUDA_VISIBLE_DEVICES}"|tr ',' '\n'|wc -l); CUDA_VISIBLE_DEVICES=$(seq -s, 0 $((n-1))); export CUDA_VISIBLE_DEVICES
+fi
+: "${ARM:?need ARM}"; SMOKE="${SMOKE:-0}"; MLEN=1024
+case "$ARM" in
+  main)   V2="--v2_enable"; nm=v2_main;;
+  noB)    V2="--v2_enable --no_v2_use_B"; nm=v2_noB;;
+  noCp)   V2="--v2_enable --no_v2_use_cp"; nm=v2_noCp;;
+  w05)    V2="--v2_enable --v2_omega 0.5"; nm=v2_w05;;
+  w0)     V2="--v2_enable --v2_omega 0.0"; nm=v2_w0;;
+  len2048)V2="--v2_enable"; MLEN=2048; nm=v2_len2048;;
+  *) echo "bad ARM=$ARM"; exit 2;;
+esac
+if [ "$SMOKE" = "1" ]; then STEPS=20; SAVE="--save_strategy no"; RC="${nm}_smoke"; else STEPS=150; SAVE="--save_steps 25"; RC="qwen31b_${nm}"; fi
+PORT=$((13900 + RANDOM%300))
+mkdir -p pbs/logs
+exec > "pbs/logs/${RC}.${PBS_JOBID}.log" 2>&1
+echo "Job ${PBS_JOBID} ARM=$ARM SMOKE=$SMOKE RC=$RC MLEN=$MLEN $(hostname)"; nvidia-smi -L
+accelerate launch --config_file accelerate.yaml --num_processes 2 --gradient_accumulation_steps 3 \
+  --main_process_port $PORT opsd_train.py \
+  --model_name_or_path /home/xiaoyan.yu/models/Qwen3-1.7B --seed 42 $V2 \
+  --learning_rate 5e-6 --max_grad_norm 0.1 --per_device_train_batch_size 5 \
+  --gradient_checkpointing --gradient_accumulation_steps 3 \
+  --output_dir /home/xiaoyan.yu/opsd_outputs/ --run_config $RC \
+  --num_train_epochs 30 --max_steps $STEPS --max_completion_length $MLEN $SAVE \
+  --logging_steps 2 --attn_implementation flash_attention_2 --torch_dtype bfloat16 \
+  --max_length 20000 --beta 0 --use_vllm --vllm_mode colocate \
+  --vllm_gpu_memory_utilization 0.6 --vllm_tensor_parallel_size 1 \
+  --use_peft --lora_r 64 --lora_alpha 128 \
+  --lora_target_modules q_proj k_proj v_proj o_proj gate_proj up_proj down_proj \
+  --temperature 1.1 --top_p 0.95 --top_k 20 --lmbda 1 --fixed_teacher \
+  --wandb_project opsd-v2
+echo "=== exit $? DONE ==="

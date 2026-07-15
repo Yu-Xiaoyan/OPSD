@@ -15,7 +15,8 @@
 - 基础：`log_tgt = log π_T`。
 - **C′-1（δ 加权重构，仅 wrong 支）**：`log_tgt += λ · max(δ, 0)`，其中 `δ = log π_T − log π_T̃`（逐 vocab）。
 - **B（全局漂移扣除，所有支，若开）**：`log_tgt −= γ · log π_S0`（PMI 式扣除"回起点"分量）。
-- `target = log_softmax(log_tgt)`；`loss_i = Σ_v target·(log target − log S)`（forward KL）。
+- `target = log_softmax(log_tgt)`；`loss_i = Σ_v clamp(target·(log target − log S), max=0.05)`
+  （forward KL，**保留 element-wise clip 0.05** = 冻结口径，P-a 净正）。
 - **ω（correct 支权重）**：correct 支 loss × ω，wrong 支 × 1。`loss = Σ w·loss_i·nt / Σ w·nt`。
 
 **pinned 超参**（默认，可调；记于此以透明）：
