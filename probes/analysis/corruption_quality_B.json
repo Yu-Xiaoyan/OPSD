@@ -1,0 +1,16 @@
+{
+  "tag": "B",
+  "gen_dir": "/home/xiaoyan.yu/opsd_outputs/qwen31b_declip_B_unclipped/generations",
+  "steps": {
+    "100": {
+      "mean_jsd_per_token": 0.0015364964763677207,
+      "n_rollout": 60,
+      "n_token": 56503
+    },
+    "145": {
+      "mean_jsd_per_token": 0.0016269080388196548,
+      "n_rollout": 60,
+      "n_token": 53832
+    }
+  }
+}

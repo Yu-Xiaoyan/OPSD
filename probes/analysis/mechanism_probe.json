@@ -1,0 +1,38 @@
+{
+  "config": {
+    "base": "/home/xiaoyan.yu/models/Qwen3-1.7B",
+    "adapter": "/home/xiaoyan.yu/opsd_outputs/qwen31b_v0_s1/checkpoint-100",
+    "rollouts": "probes/data/rollouts_ckpt50_max1024.jsonl",
+    "n_wrong": 20,
+    "n_heldout": 20,
+    "tau": 7.63,
+    "lr": 0.0001,
+    "wrong_tok_frac": 0.078,
+    "seed": 0,
+    "out": "probes/analysis/mechanism_probe.json"
+  },
+  "M1": {
+    "spearman_w_vs_top2": 0.024525182447477194,
+    "spearman_w_vs_entropy": 0.02751146903964057,
+    "auc_lowW_predicts_highTop2": 0.48678471509311555,
+    "n_tokens": 14449
+  },
+  "M2": {
+    "coh_uniform_mean": 0.14293684232980014,
+    "coh_v0_mean": 0.14607990477234126,
+    "coh_improved_frac": 0.75
+  },
+  "M4_dose": {
+    "effective_removed_frac_within_wrong": 0.5176523821226534,
+    "effective_removed_frac_of_total": 0.04037688580556697,
+    "wrong_tok_frac_used": 0.078
+  },
+  "M3": {
+    "anchor_in_batch_pre": -27.321397870732472,
+    "anchor_heldout_pre": -15.94826236863931,
+    "OPSD_uniform_in_batch_dV": -0.04465146244037754,
+    "OPSD_uniform_heldout_dV": 0.155282249674201,
+    "v0_gated_in_batch_dV": -0.06501038833521378,
+    "v0_gated_heldout_dV": 0.06759320447842398
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "tag": "A",
+  "gen_dir": "/home/xiaoyan.yu/opsd_outputs/qwen31b_repro_3xh200_gb30/generations",
+  "steps": {
+    "100": {
+      "mean_jsd_per_token": 0.0005411905609898316,
+      "n_rollout": 50,
+      "n_token": 46619
+    },
+    "145": {
+      "mean_jsd_per_token": 0.0006224908396982134,
+      "n_rollout": 50,
+      "n_token": 44689
+    }
+  }
+}
