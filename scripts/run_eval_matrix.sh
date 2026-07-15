@@ -21,7 +21,7 @@
 set -uo pipefail
 
 PY="$HOME/.conda/envs/opsd/bin/python"
-BASE_MODEL="$HOME/models/Qwen3-1.7B"
+BASE_MODEL="${BASE_MODEL:-$HOME/models/Qwen3-1.7B}"
 MODEL_DIR="${MODEL_DIR:-}"
 TAG="${TAG:-}"
 OUT="${OUT:-results/matrix_eval}"

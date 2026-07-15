@@ -20,9 +20,14 @@ mkdir -p pbs/logs results/v2_eval
 exec > "pbs/logs/eval_v2_${TAG:-base}.${PBS_JOBID}.log" 2>&1
 echo "Job ${PBS_JOBID} MD='${MD:-}' TAG='${TAG:-base}' $(hostname)"; nvidia-smi -L
 OUT="${OUT:-results/v2_eval}"; ST="${STEPS:-50+100+150}"
+BM="${BASE:-$HOME/models/Qwen3-1.7B}"   # LoRA 底座 / base eval 用的模型
 [ -z "${MD:-}" ] && ST=""   # base: 无 steps
-echo "=== AIME24/25 avg@12 ==="
-MODEL_DIR="${MD:-}" TAG="${TAG:-}" OUT="$OUT" DATASETS="aime24 aime25" VAL_N=12 STEPS="$ST" NGPU=2 bash scripts/run_eval_matrix.sh
-echo "=== MATH500 avg@4 ==="
-MODEL_DIR="${MD:-}" TAG="${TAG:-}" OUT="$OUT" DATASETS="math500" VAL_N=4 STEPS="$ST" NGPU=2 bash scripts/run_eval_matrix.sh
+echo "=== AIME24/25 avg@12  (base=$BM, steps=$ST) ==="
+BASE_MODEL="$BM" MODEL_DIR="${MD:-}" TAG="${TAG:-}" OUT="$OUT" DATASETS="aime24 aime25" VAL_N=12 STEPS="$ST" NGPU=2 bash scripts/run_eval_matrix.sh
+if [ "${WITH_MATH:-1}" = "1" ]; then
+  echo "=== MATH500 avg@4 ==="
+  BASE_MODEL="$BM" MODEL_DIR="${MD:-}" TAG="${TAG:-}" OUT="$OUT" DATASETS="math500" VAL_N=4 STEPS="$ST" NGPU=2 bash scripts/run_eval_matrix.sh
+else
+  echo "=== MATH500 skipped (WITH_MATH=0) ==="
+fi
 echo "=== DONE ==="
