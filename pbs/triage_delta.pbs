@@ -1,0 +1,21 @@
+#!/bin/bash
+#PBS -N triageb
+#PBS -P ds_ccds_wei.lu
+#PBS -q gpu_ded
+#PBS -l select=1:ncpus=4:ngpus=1
+#PBS -l walltime=02:00:00
+#PBS -j oe
+set -uo pipefail
+module purge; module load anaconda/2025; module load cuda/13.1
+eval "$(/usr/local/anaconda2025/bin/conda shell.bash hook)"; conda activate opsd
+cd /home/xiaoyan.yu/projects/OPSD
+export PYTHONUNBUFFERED=1 HF_HUB_OFFLINE=1 HF_DATASETS_OFFLINE=1 DS_SKIP_CUDA_CHECK=1
+unset CPATH C_INCLUDE_PATH CPLUS_INCLUDE_PATH
+if echo "${CUDA_VISIBLE_DEVICES:-}" | grep -q "GPU-"; then
+  n=$(echo "${CUDA_VISIBLE_DEVICES}"|tr ',' '\n'|wc -l); CUDA_VISIBLE_DEVICES=$(seq -s, 0 $((n-1))); export CUDA_VISIBLE_DEVICES
+fi
+mkdir -p pbs/logs probes/analysis
+exec > "pbs/logs/triageb.${PBS_JOBID}.log" 2>&1
+echo "Job ${PBS_JOBID} $(hostname)"; nvidia-smi -L
+~/.conda/envs/opsd/bin/python probes/triage_delta.py --limit_per_bucket 1000 --tok_cap 768
+echo "=== exit $? DONE ==="
