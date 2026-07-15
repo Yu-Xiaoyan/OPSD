@@ -1,0 +1,72 @@
+{
+  "n_rollout": 50,
+  "tok_cap": 768,
+  "rho": 0.0007,
+  "epistemic_set": [
+    "actually",
+    "but",
+    "check",
+    "however",
+    "maybe",
+    "perhaps",
+    "reconsider",
+    "wait"
+  ],
+  "epi_token_ids": 56,
+  "epi_base_rate": 0.00036857624262847516,
+  "Q_a_conflict_frac": {
+    "0.2": 0.28341290448669626,
+    "0.3": 0.2292766004969707,
+    "0.5": 0.14733227238462182
+  },
+  "Q_b_original_logratio": {
+    "epi_mass_share": 0.0003686062524917738,
+    "base_rate": 0.00036857624262847516,
+    "enrichment_ratio": 1.0000814210462525,
+    "note": "δ 对数比全词表, 尾部支配 -> 判'无信息'(非'假设被否')"
+  },
+  "R_b_massweighted_Qb": {
+    "deltaP_enrichment": 33.464801705969,
+    "delta_x_PT_enrichment": 32.52067289455533,
+    "base_rate": 0.00036857624262847516,
+    "criterion": ">=3x 基率 -> 支持'≈修正模式'"
+  },
+  "R_c_style_subset_exploratory": {
+    "deltaP_enrichment": 17.74218867862606,
+    "style_token_ids": 129,
+    "style_base_rate": 0.0008490417017691659,
+    "note": "exploratory, 不参与判决"
+  },
+  "Q_c_overlap": {
+    "jaccard": 0.18869742052873809,
+    "P_conflict_given_corruption": 0.6091914305459571,
+    "P_corruption_given_conflict": 0.21468582562104238,
+    "n_conflict": 8212,
+    "n_corruption": 2894,
+    "n_inter": 1763
+  },
+  "Q_d_orthogonality": {
+    "spearman_conflict": 0.11487391591072083,
+    "spearman_all": 0.13960568606853485,
+    "topmass_overlap_conflict": 0.039810262620449066,
+    "topmass_overlap_all": 0.042249053716659546,
+    "n_conflict_pos": 8212,
+    "n_all_pos": 35817,
+    "topk": 64,
+    "spearman_domain": "full_vocab"
+  },
+  "R_a_topk_union_spearman": {
+    "conflict": {
+      "20": -0.2082734853029251,
+      "50": -0.21408940851688385,
+      "100": -0.21849867701530457
+    },
+    "all": {
+      "20": -0.23107311129570007,
+      "50": -0.23202674090862274,
+      "100": -0.23174937069416046
+    },
+    "main_K": 50,
+    "verdict_rule": "主判K=50: <=0.4 确认正交(C存活确认) / >=0.7 存活撤销->人判 / (0.4,0.7)人判"
+  }
+}
