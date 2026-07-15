@@ -15,8 +15,8 @@ if echo "${CUDA_VISIBLE_DEVICES:-}" | grep -q "GPU-"; then
   n=$(echo "${CUDA_VISIBLE_DEVICES}"|tr ',' '\n'|wc -l); CUDA_VISIBLE_DEVICES=$(seq -s, 0 $((n-1))); export CUDA_VISIBLE_DEVICES
 fi
 mkdir -p pbs/logs probes/analysis
-MODEL="${MODEL:-/home/xiaoyan.yu/models/Qwen3-1.7B}"; TAG="${TAG:-}"
+MODEL="${MODEL:-/home/xiaoyan.yu/models/Qwen3-1.7B}"; TAG="${TAG:-}"; ROLL="${ROLL:-probes/data/rollouts_ckpt50_max4096.jsonl}"
 exec > "pbs/logs/privdist${TAG}.${PBS_JOBID}.log" 2>&1
 echo "Job ${PBS_JOBID} $(hostname)"; nvidia-smi -L
-~/.conda/envs/opsd/bin/python probes/privilege_distance.py --base "$MODEL" --limit 60 --tok_cap 768 --out probes/analysis/privilege_distance${TAG}.json
+~/.conda/envs/opsd/bin/python probes/privilege_distance.py --base "$MODEL" --rollouts "$ROLL" --limit 60 --tok_cap 768 --out probes/analysis/privilege_distance${TAG}.json
 echo "=== exit $? DONE ==="
