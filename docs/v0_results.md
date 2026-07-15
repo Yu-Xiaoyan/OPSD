@@ -24,7 +24,14 @@ avg@12，temp 1.0 / top_p 1.0 / top_k -1 / min_p 0 / max_new 38912 / thinking on
 | 100 | 43.1 | 40.8 | **−2.2** | +5.8 |
 | 150 | 42.8 | 41.7 | **−1.1** | +6.7 |
 
-OPSD peak gain（参考，= ckpt100 − base）：**AIME24 +5.8 / AIME25 +8.1**。
+OPSD peak gain（参考，= ckpt100 − base，**单 seed**）：AIME24 +5.8 / AIME25 +8.1。
+> ⚠️ **基准口径统一（2026-07-15）**：正文引用的"饱和前增益"改用 **T2 3-seed 表**（见下 §T2）：
+> OPSD 相对 base @ ckpt100 = **AIME24 +6.3±1.1 / AIME25 +6.8±1.8 / MATH500 +1.4±0.3**（mean±std 报全，
+> std 取 OPSD 列，base 为单点未训练）。上面的**单 seed +5.8/+8.1 降为"复现一致性佐证"**，不作正文主引用。
+>
+> **饱和操作定义（采纳 2026-07-15）**：saturation step = 最早 checkpoint c，使其后**所有评测点**相对 c
+> 的提升 **≤ 1 pooled seed std**。**评测网格粒度 = ckpt {50, 100, 150}（步长 50）**，pooled seed std
+> 由 3-seed 表估（AIME ~1–2pt、MATH500 ~0.3pt）。网格粗（仅 3 点）须正文注明——不足以定位 50 步内饱和点。
 
 ## 主判据（primary accept/reject）— v0 best gain/base vs OPSD
 
