@@ -76,3 +76,34 @@ OPSD 训练在 ~100 步后性能饱和/回落。问题：饱和是不是因为 *
   作用于漂移轴（如全局漂移扣除 / EMA teacher 保持 teacher 新鲜）。
 - 复现：`probes/drift_scan.py`（GPU，逐 seed）→ `probes/drift_multiseed.py`（CPU，聚合+判读）；
   桶分解 `probes/triage_drift.py`。数据 `probes/analysis/{drift_multiseed,triage_a_drift}.json`。
+
+---
+
+# 附：v2 方法 evaluation 结果（失败，已放弃）
+
+> ⚠️ **与上文 drift 诊断是两回事，别混**：上文 60.3% 是"漂移**份额**"（分歧构成的机制诊断量）；
+> 下文是"AIME **正确率**"（性能量）。都是百分数，但一个测"漂移占比"、一个测"做对题的比例"。
+
+## 方法（v2 主案 = 目标手术）
+在 OPSD 基线上改**蒸馏目标**（非重加权）：每 rollout 逐 token 重构 target
+`log_tgt = log π_T + λ·max(δ,0)（C′-1，wrong支）− γ·log π_S0（B 全局漂移扣除，所有支）`，
+renorm 后 clipped forward-KL 蒸馏；λ=1、γ=0.5、clip 0.05。三路分诊（correct/wrong/truncated）。
+
+## 结果（v2main 臂，AIME avg@12；`results/v2_eval/`）
+| ckpt | AIME24 | AIME25 |
+|--:|--:|--:|
+| v2main 50 | 41.7 | 36.1 |
+| v2main 100 | **27.8** | **26.1** |
+| v2main 150 | **28.9** | **26.1** |
+| — base（未训练） | 49.2 | 35.0 |
+| — 官方 OPSD 100 | 55.0 | 43.1 |
+
+**训崩**：ckpt50 已掉到 base 以下，ckpt100/150 塌到 ~28/26 —— **比 base 低 ~20pt、比官方 OPSD 低 ~27pt**。
+
+## 判读（如实）
+- v2 主案（B 漂移扣除 + C′ 腐蚀δ促修正，叠加）**性能崩溃**。
+- **头号嫌疑**：B 的 PMI 减法 `−γ·log π_S0` 放大稀有 token → 重构 target 畸形 → 训崩；
+  次疑：clip 加在重构 target 上的交互（clip 公式与原版一致，但作用于合成分布而非真 teacher）。
+- **未定位到底是 B 还是 C′**：ablation 臂（noCp=纯B / noB=纯C′）的 eval 在定位前已 kill（止损）。
+- **状态**：v2 目标手术线**放弃**；只 v2main 的 AIME 跑完，MATH500 及其余臂未测（已全 kill）。
+- **教训**：目标重构（尤其 PMI 式减 base）是雷区；对症干预漂移轴应走更直接的路（如 EMA teacher）。
