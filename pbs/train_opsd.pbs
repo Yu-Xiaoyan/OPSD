@@ -1,0 +1,39 @@
+#!/bin/bash
+#PBS -N opsdtrain
+#PBS -P ds_ccds_wei.lu
+#PBS -q gpu_ded
+#PBS -l select=1:ncpus=8:ngpus=2
+#PBS -l walltime=06:00:00
+#PBS -j oe
+# 纯 OPSD 基线复现. qsub -v MODEL=~/models/Qwen3-4B,RC=qwen3_4b_opsd_openthoughts pbs/train_opsd.pbs
+# 数据集=OpenThoughts(代码默认); 200步/save50; 配置照原repro(gb30 2x5x3, clip0.05, TM-off, solution, fixed teacher).
+set -euo pipefail
+: "${MODEL:?need MODEL}"; : "${RC:?need RC}"
+module purge; module load anaconda/2025; module load cuda/13.1
+eval "$(/usr/local/anaconda2025/bin/conda shell.bash hook)"; conda activate opsd
+cd /home/xiaoyan.yu/projects/OPSD
+export PYTHONUNBUFFERED=1 HF_HUB_OFFLINE=1 HF_DATASETS_OFFLINE=1 DS_SKIP_CUDA_CHECK=1
+export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+unset CPATH C_INCLUDE_PATH CPLUS_INCLUDE_PATH
+if echo "${CUDA_VISIBLE_DEVICES:-}" | grep -q "GPU-"; then
+  n=$(echo "${CUDA_VISIBLE_DEVICES}"|tr ',' '\n'|wc -l); CUDA_VISIBLE_DEVICES=$(seq -s, 0 $((n-1))); export CUDA_VISIBLE_DEVICES
+fi
+PORT=$((14200 + RANDOM%300))
+mkdir -p pbs/logs
+exec > "pbs/logs/${RC}.${PBS_JOBID}.log" 2>&1
+echo "Job ${PBS_JOBID} MODEL=$MODEL RC=$RC $(hostname)"; nvidia-smi -L
+accelerate launch --config_file accelerate.yaml --num_processes 2 --gradient_accumulation_steps 3 \
+  --main_process_port $PORT opsd_train.py \
+  --model_name_or_path "$MODEL" --seed 42 \
+  --learning_rate 5e-6 --max_grad_norm 0.1 --per_device_train_batch_size 5 \
+  --gradient_checkpointing --gradient_accumulation_steps 3 \
+  --output_dir /home/xiaoyan.yu/opsd_outputs/ --run_config "$RC" \
+  --num_train_epochs 30 --max_steps 200 --max_completion_length 1024 --save_steps 50 \
+  --logging_steps 2 --attn_implementation flash_attention_2 --torch_dtype bfloat16 \
+  --max_length 20000 --beta 0 --use_vllm --vllm_mode colocate \
+  --vllm_gpu_memory_utilization 0.6 --vllm_tensor_parallel_size 1 \
+  --use_peft --lora_r 64 --lora_alpha 128 \
+  --lora_target_modules q_proj k_proj v_proj o_proj gate_proj up_proj down_proj \
+  --temperature 1.1 --top_p 0.95 --top_k 20 --lmbda 1 --fixed_teacher \
+  --wandb_project opsd-repro
+echo "=== exit $? DONE ==="
