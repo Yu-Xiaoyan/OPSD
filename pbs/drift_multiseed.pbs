@@ -1,0 +1,25 @@
+#!/bin/bash
+#PBS -N driftms
+#PBS -P ds_ccds_wei.lu
+#PBS -q gpu_ded
+#PBS -l select=1:ncpus=4:ngpus=1
+#PBS -l walltime=02:00:00
+#PBS -j oe
+# submit: qsub -v SEED=s1 pbs/drift_multiseed.pbs ; qsub -v SEED=s2 pbs/drift_multiseed.pbs
+set -uo pipefail
+: "${SEED:?must pass -v SEED=s1|s2}"
+module purge; module load anaconda/2025; module load cuda/13.1
+eval "$(/usr/local/anaconda2025/bin/conda shell.bash hook)"; conda activate opsd
+cd /home/xiaoyan.yu/projects/OPSD
+export PYTHONUNBUFFERED=1 HF_HUB_OFFLINE=1 HF_DATASETS_OFFLINE=1 DS_SKIP_CUDA_CHECK=1
+unset CPATH C_INCLUDE_PATH CPLUS_INCLUDE_PATH
+if echo "${CUDA_VISIBLE_DEVICES:-}" | grep -q "GPU-"; then
+  n=$(echo "${CUDA_VISIBLE_DEVICES}"|tr ',' '\n'|wc -l); CUDA_VISIBLE_DEVICES=$(seq -s, 0 $((n-1))); export CUDA_VISIBLE_DEVICES
+fi
+mkdir -p pbs/logs probes/analysis
+exec > "pbs/logs/driftms_${SEED}.${PBS_JOBID}.log" 2>&1
+echo "Job ${PBS_JOBID} $(hostname) SEED=${SEED}"; nvidia-smi -L
+PY=~/.conda/envs/opsd/bin/python
+CKPT=/home/xiaoyan.yu/opsd_outputs/qwen31b_opsd_${SEED}
+$PY probes/drift_scan.py --ckpt_dir "$CKPT" --out_tag "_${SEED}"
+echo "=== exit $? DONE ==="

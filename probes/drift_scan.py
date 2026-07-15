@@ -47,7 +47,12 @@ def main():
     ap.add_argument("--shard", type=int, default=0)
     ap.add_argument("--nshards", type=int, default=1)
     ap.add_argument("--limit", type=int, default=None)
+    ap.add_argument("--ckpt_dir", type=str, default=CKPT_DIR,
+                    help="run dir holding checkpoint-{25..150} (default: seed42 repro)")
+    ap.add_argument("--out_tag", type=str, default="",
+                    help="output: drift{out_tag}_shard{shard}.jsonl (e.g. _s1, _s2)")
     args = ap.parse_args()
+    ckpt_dir = args.ckpt_dir
 
     tok = AutoTokenizer.from_pretrained(BASE, padding_side="left")
     if tok.pad_token is None:
@@ -57,10 +62,10 @@ def main():
         attn_implementation="flash_attention_2").cuda().eval()
     # load all six adapters, switch with set_adapter; base via disable_adapter()
     model = PeftModel.from_pretrained(
-        base, os.path.join(CKPT_DIR, f"checkpoint-{STEPS[0]}"),
+        base, os.path.join(ckpt_dir, f"checkpoint-{STEPS[0]}"),
         adapter_name=str(STEPS[0])).eval()
     for k in STEPS[1:]:
-        model.load_adapter(os.path.join(CKPT_DIR, f"checkpoint-{k}"), adapter_name=str(k))
+        model.load_adapter(os.path.join(ckpt_dir, f"checkpoint-{k}"), adapter_name=str(k))
 
     tr = load_dataset(DATASET)["train"]
     recs = [json.loads(l) for l in open(os.path.join(DATA, "rollouts_ckpt50_max4096.jsonl"))]
@@ -68,8 +73,9 @@ def main():
     cw = [r for i, r in enumerate(cw) if i % args.nshards == args.shard]
     if args.limit:
         cw = cw[:args.limit]
-    out_path = os.path.join(DATA, f"drift_shard{args.shard}.jsonl")
-    print(f"[drift] {len(cw)} rollouts x {len(STEPS)} ckpts (shard {args.shard})")
+    out_path = os.path.join(DATA, f"drift{args.out_tag}_shard{args.shard}.jsonl")
+    print(f"[drift] {len(cw)} rollouts x {len(STEPS)} ckpts (shard {args.shard}) "
+          f"ckpt_dir={ckpt_dir} -> {out_path}")
 
     with open(out_path, "w", encoding="utf-8") as f:
         for j, r in enumerate(cw):
