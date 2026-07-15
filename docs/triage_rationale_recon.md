@@ -1,0 +1,56 @@
+# 三路分诊 rationale 验证（预注册，先落盘后跑；纯 probe，不训练）
+
+> 承 v2 架构裁决（2026-07-15）：v2 主案 = **按 rollout 对错三路分诊 + 错支目标手术**
+> （correct 支降权/跳过；wrong 支完整蒸馏 + C′ 促修正 + 漂移扣除；truncated 支 V(t) 分派）。
+> 本文件验证分诊的三条 rationale。**写定即锁死判据，跑后不动。** 输出
+> `probes/analysis/triage_rationale.json`。
+
+## 数据
+
+- **(a)/(b)**：现有 **3-seed 漂移分解数据**（`drift_shard*` / `drift_s1_shard*` / `drift_s2_shard*`，
+  各 187 rollout = correct 107 + wrong 80），按 verifier-v2 桶（rollout 自带 `bucket`）重聚合。
+  两桶 n（correct 107 / wrong 80）均 ≥20 → (a)(b) 不标 provisional。
+- **(c)**：`diag_truncated.jsonl`（138 truncated，含 `V_values`[32]/`V_positions`，末位=截断点读数）。
+
+## 预言（跑前锁死）
+
+### (a) correct 桶漂移份额更高
+150 步处 **correct 桶 overall drift share 高于 wrong 桶 ≥ 10pp（3-seed 均值）**。
+- drift share 口径同主曲线：`100·Σdrift_k/(Σdrift_k+Σteach)`，按桶分别聚合。
+- rationale：correct 桶"学生已会"，监督信号以漂移（拽回起点）为主 → 降权/跳过有据。
+
+### (b) wrong 桶腐蚀敏感（修正需求）更强
+**wrong 桶的腐蚀差分 δ 正向质量（P_T 加权口径，与 R-b 一致）≥ 1.5× correct 桶**。
+- 每 rollout 标量 = `Σ_t Σ_v P_T·max(δ,0)` / T（冲突位置口径同 direction_axis：p2/p1≥0.3；
+  与 R-b 一致取冲突位置上的 P_T 加权 δ 正部），按桶取均值。
+- teacher=base 固定；δ=log π_T−log π_T̃（腐蚀=特权答案本体，复用 corrupt pipeline）。
+- rationale：wrong 桶需"目标手术/促修正"，其腐蚀敏感成分应显著强于 correct 桶。
+
+### (c) truncated 桶 V(t) 截断点读数区分"后续正轨/歪轨"
+**AUC ≥ 0.65**。
+- **操作化困境（已落盘）**：138 truncated **无一含 `\boxed`（可直接判对错子集 = 0 < 30）**
+  → 直接口径不可行，启用**替代操作化（预注册）**：
+  - **续写判对错**：对每条 truncated rollout，以 `student_prompt(problem)+truncated_completion`
+    为前缀，用 **ckpt150 student** 续写（锁定协议 temp 1.0/top_p 1.0/top_k −1/min_p 0），
+    **续写预算 cap = +4096 token**；含 `\boxed` 且 verifier-v2 判对 → **label=正轨(1)**；
+    判错 → **歪轨(0)**；**仍截断（未出答案）→ 归 0（歪轨）**（保守：未收敛视为 off-track）。
+  - **读数** = 截断点 V(t) = `V_values[-1]`（gt 答案在截断位的 log-likelihood）。
+  - **AUC**(读数, label)；报正轨/歪轨各 n。
+  - 若续写后 label 单一类（全 0 或全 1）致 AUC 未定义 → 记"未定义"，(c) 判**不成立**。
+
+## 判定（锁死）
+
+- **(a) 且 (b) 成立** → 分诊 rationale 获支撑，**训练解冻条件满足一半**（另一半 = 用户明示发令）。
+- **(a) 不成立** → correct 支降权**失据**，**架构重审**。
+- **(c) 不成立** → truncated 支改**保守默认（按 wrong 处理，完整蒸馏）**，方法保留但削弱。
+- 各桶报 n；**correct 桶 n<20 → (a)(b) 标 provisional**（本数据 correct=107，不触发）。
+
+## 实现与预算
+
+- **(a)**：`probes/triage_drift.py`（CPU）——3-seed drift 数据按桶重聚合 → per-bucket/per-seed
+  drift share 曲线 + 3-seed 均值 + (a) 判读。零 GPU。
+- **(b)**：`probes/triage_delta.py`（GPU，1 卡）——correct+wrong 各 rollout 补腐蚀 forward
+  （π_T/π_T̃，base），算冲突位 P_T 加权 δ 正部均值，按桶聚合 + (b) 判读。~187×2 forward，估 <30min。
+- **(c)**：`probes/triage_truncated_vt.py`（GPU，1 卡，续写）——138 truncated 续写（cap +4096）
+  + verifier-v2 + AUC。续写 138 条估 20–60min（vLLM 批量）；> 2h 则分片。
+- 存储纪律 §4：只落派生标量/AUC，不存 [T,V]。所有作业先 py_compile + 逻辑自检再投。
