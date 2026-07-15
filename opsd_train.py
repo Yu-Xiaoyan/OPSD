@@ -56,6 +56,15 @@ class CustomScriptArguments(ScriptArguments):
             "automatic name based on hyperparameters."
         },
     )
+    dataset: str = field(
+        default="siyanzhao/Openthoughts_math_30k_opsd",
+        metadata={
+            "help": "Training dataset HF name. Mapped to problem/solution/Answer fields. "
+            "Supported: 'siyanzhao/Openthoughts_math_30k_opsd' (default), "
+            "'jasonrqh/Math-CoT-20k' (question/response/answer, loaded via pyarrow to bypass "
+            "the List-feature incompatibility with datasets 3.6.0)."
+        },
+    )
     presence_penalty: float = field(
         default=0.0,
         metadata={
@@ -294,8 +303,25 @@ if __name__ == "__main__":
     # Add presence_penalty to training_args so it can be accessed in the trainer
     training_args.presence_penalty = script_args.presence_penalty
 
-    dataset = load_dataset("siyanzhao/Openthoughts_math_30k_opsd")
-    train_dataset = dataset["train"]
+    # Load training data, mapping each dataset's fields to problem/solution/Answer.
+    if script_args.dataset == "jasonrqh/Math-CoT-20k":
+        # datasets 3.6.0 cannot parse this dataset's `message` (list<struct>) feature,
+        # so read the parquet via pyarrow and keep only the 3 columns we need.
+        from huggingface_hub import hf_hub_download
+        import pyarrow.parquet as pq
+        import datasets as _ds
+        _fp = hf_hub_download("jasonrqh/Math-CoT-20k", "Math-CoT-20k.parquet",
+                              repo_type="dataset")
+        _tbl = pq.read_table(_fp, columns=["question", "response", "answer"])
+        train_dataset = _ds.Dataset.from_dict({
+            "problem": _tbl.column("question").to_pylist(),
+            "solution": _tbl.column("response").to_pylist(),
+            "Answer": [str(a) for a in _tbl.column("answer").to_pylist()],
+        })
+    else:
+        train_dataset = load_dataset(script_args.dataset)["train"]
+    print(f"[dataset] {script_args.dataset}: {len(train_dataset)} rows, "
+          f"columns={train_dataset.column_names}")
 
     # Build the collator explicitly so experiment A can inject a transition-prompt
     # override WITHOUT touching opsd_trainer.py. With override=None this is

@@ -24,7 +24,7 @@ exec > "pbs/logs/${RC}.${PBS_JOBID}.log" 2>&1
 echo "Job ${PBS_JOBID} MODEL=$MODEL RC=$RC $(hostname)"; nvidia-smi -L
 accelerate launch --config_file accelerate.yaml --num_processes 2 --gradient_accumulation_steps 3 \
   --main_process_port $PORT opsd_train.py \
-  --model_name_or_path "$MODEL" --seed 42 \
+  --model_name_or_path "$MODEL" --seed 42 --dataset "${DATASET:-siyanzhao/Openthoughts_math_30k_opsd}" \
   --learning_rate 5e-6 --max_grad_norm 0.1 --per_device_train_batch_size 5 \
   --gradient_checkpointing --gradient_accumulation_steps 3 \
   --output_dir /home/xiaoyan.yu/opsd_outputs/ --run_config "$RC" \
