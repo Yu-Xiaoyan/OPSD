@@ -1,0 +1,28 @@
+#!/bin/bash
+#PBS -N eval_v2
+#PBS -P ds_ccds_wei.lu
+#PBS -q gpu_ded
+#PBS -l select=1:ncpus=8:ngpus=2
+#PBS -l walltime=08:00:00
+#PBS -j oe
+# v2 eval: AIME24/25 avg@12 + MATH500 avg@4 @ STEPS(50+100+150), 锁定协议.
+# qsub [-W depend=afterok:JOB] -v MD=<ckpt父目录或空>,TAG=<前缀>,OUT=results/v2_eval pbs/eval_v2.pbs
+set -uo pipefail
+module purge; module load anaconda/2025; module load cuda/13.1
+eval "$(/usr/local/anaconda2025/bin/conda shell.bash hook)"; conda activate opsd
+cd /home/xiaoyan.yu/projects/OPSD
+export PYTHONUNBUFFERED=1 HF_HUB_OFFLINE=1 NCCL_P2P_DISABLE=1 DS_SKIP_CUDA_CHECK=1
+unset CPATH C_INCLUDE_PATH CPLUS_INCLUDE_PATH
+if echo "${CUDA_VISIBLE_DEVICES:-}" | grep -q "GPU-"; then
+  n=$(echo "${CUDA_VISIBLE_DEVICES}"|tr ',' '\n'|wc -l); CUDA_VISIBLE_DEVICES=$(seq -s, 0 $((n-1))); export CUDA_VISIBLE_DEVICES
+fi
+mkdir -p pbs/logs results/v2_eval
+exec > "pbs/logs/eval_v2_${TAG:-base}.${PBS_JOBID}.log" 2>&1
+echo "Job ${PBS_JOBID} MD='${MD:-}' TAG='${TAG:-base}' $(hostname)"; nvidia-smi -L
+OUT="${OUT:-results/v2_eval}"; ST="50+100+150"
+[ -z "${MD:-}" ] && ST=""   # base: 无 steps
+echo "=== AIME24/25 avg@12 ==="
+MODEL_DIR="${MD:-}" TAG="${TAG:-}" OUT="$OUT" DATASETS="aime24 aime25" VAL_N=12 STEPS="$ST" NGPU=2 bash scripts/run_eval_matrix.sh
+echo "=== MATH500 avg@4 ==="
+MODEL_DIR="${MD:-}" TAG="${TAG:-}" OUT="$OUT" DATASETS="math500" VAL_N=4 STEPS="$ST" NGPU=2 bash scripts/run_eval_matrix.sh
+echo "=== DONE ==="
