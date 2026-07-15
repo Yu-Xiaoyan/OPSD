@@ -49,14 +49,12 @@ wrong 桶全体上，冲突位置（p2/p1≥0.3）**占 token 总数比例**。�
 - **判据**：epistemic 表上的正差分质量份额 ≥ **3×** 其词表基率 → 支持"特权敏感成分≈修正模式"。
   - share = Σ_{位置∈冲突} Σ_{v∈epi} max(δ,0) / Σ_{位置∈冲突} Σ_v max(δ,0)；
   - base_rate = |epi 词表 token id| / |V|；报 ratio = share / base_rate。
-- **epistemic 表（预注册集合，⚠️ 见"口径限定"）**：`Wait, Actually, Perhaps, Maybe, But,
-  However, check, reconsider`（用户 Q-b 逐字给出的 8 词）。matching = 去前导 ▁/Ġ/空格后
-  letters-core 小写命中（覆盖 " Wait"/"Wait"/"wait" 等变体）。
-  - **口径限定（诚实标注）**：用户口径为"**TRD 16-token** epistemic 表"，但该 16-token 逐字表
-    **无法从可及文献复现**——Purified OPSD(2607.02234) 不含此表、无 "TRD" 缩写；repo
-    `token_categories.yaml` 只有 ~80 词的 style 表（注称出自 OPSD paper 附录 C）。故本轮用
-    用户 Q-b **自己逐字给出的 8 词**作预注册集合，**Q-b 判据结果标为 provisional**，待 TRD
-    原表（16 token）核对；若原表不同，Q-b 一键重算（δ 派生量不需重跑 forward，见实现）。
+- **修正类标记词集（final，本文定义）**：`Wait, Actually, Perhaps, Maybe, But, However,
+  check, reconsider`（8 词）。matching = 去前导 ▁/Ġ/空格后 letters-core 小写命中（覆盖
+  " Wait"/"Wait"/"wait" 等变体）。
+  - **身份定稿（战略层终审 2026-07-15）**："TRD 16-token epistemic 表"**不存在**——
+    Purified OPSD(2607.02234) 不含此表、无 "TRD" 缩写。**停止等待供表**；上述 8 词
+    **定稿为本文自定义的"修正类标记词集"，不挂 TRD 引用**。
 
 ### Q-c 轴重叠
 冲突位置（p2/p1≥0.3）与**腐蚀敏感位置**（`c_t = JSD(π_T,π_T̃) > ρ=0.0007`，沿用
@@ -122,8 +120,34 @@ wrong 桶全体上，冲突位置（p2/p1≥0.3）**占 token 总数比例**。�
    判读在**尾稳健指标上成立**，非纯全词表伪影。仍建议若要定稿，补 **top-K 并集域** Spearman
    作三角互证。
 
-### 待裁（不擅自拍）
+### 裁决（战略层 2026-07-15）
 
-- Q-d 生死问在**尾稳健的 top-mass overlap 上支持"C 存活/正交"**；是否据此**写入 v2_design**
-  （C=腐蚀门作为 Purified 之外的独立轴），还是**先补清洁重算**（Q-b 质量加权 + Q-d top-K 并集域）
-  再定稿——请你裁。**本文件先据预注册规则记 Q-d ≤0.4 → C 存活，caveat 一并在案。**
+- **裁决一（Q-d）**：按预注册**判 C 存活**（0.115/0.140/0.040 均 ≤0.4，字面命中，判决生效）。
+  **存活状态标注"待稳健性确认"**——全词表 Spearman 天然偏低（caveat 2）+ top-mass overlap
+  0.04 独立佐证，二者已在案。稳健性由下"清洁重算"的 top-K 并集域 Spearman 三角互证。
+- **裁决二（Q-b）**：原全词表 `1.00×` 判 **"无信息"**（非"假设被否"），口径维持；修正类词集
+  8 词已定稿（见上）。
+
+---
+
+## 清洁重算（预注册，先落盘后跑；判据现在写死，跑后不动）
+
+同一批 wrong-bucket rollout、同三套 base forward，追加三项：
+
+### R-a  Q-d top-K 并集域 Spearman（稳健性确认）
+每位置取 |δ| 与 |Δit| 各自 top-K，并集上算 Spearman。**主判 K=50**，附 **K=20/100** 敏感性。
+- **判据（锁死）**：主判 K=50 均值 —— **≤0.4 确认正交（C 存活确认）**；**≥0.7 存活撤销→人判**；
+  **(0.4, 0.7) 人判**。
+
+### R-b  Q-b 质量加权重算
+两变体：**ΔP 正部** `Σ max(P_T−P_T̃,0)`、**δ 按 P_T 加权** `Σ P_T·max(δ,0)`。冲突位置上算
+修正类 8 词的质量份额。
+- **判据（沿用）**：修正类集中度 **≥3× 基率** → 支持"特权敏感成分≈修正模式"。
+- 原全词表 1.00× 维持 "无信息" 判定，不改判为 "假设被否"。
+
+### R-c  style 子集敏感性（exploratory，不参与判决）
+从 repo `token_categories.yaml` 80 词 style 表中取**语义属修正类**的子集，按 R-b 质量加权口径
+重算 enrichment，**标 exploratory**，仅作分布性参照。
+
+**落盘/开跑**：本预注册 commit+push 后开跑；输出 `probes/analysis/direction_axis_recompute.json`
+（不覆盖原 `direction_axis.json`）。

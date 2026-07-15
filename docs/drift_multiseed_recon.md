@@ -69,3 +69,9 @@ overall drift share（"拽回起点"成分，%）@ steps [25,50,75,100,125,150]�
 ### caveat 承接
 - off-policy 固定 rollout 的绝对水平偏置**跨 seed 同向同量**（三 seed 共用同一 rollout 集），
   故**种子间差异与趋势不受其影响**；此前单 seed 的 off-policy caveat 于本复核判据（趋势/首尾/过半）不构成威胁。
+
+### 结案（战略层 2026-07-15）
+- **两预言 PASS，中心论点（漂移接管）以 3-seed mean±std 入档**；**"过半/majority" 措辞保留**（论文可引）。
+- **用户终端核对项**：`qstat -x 33404.gaas 33405.gaas`（均 **F / exit 0**）+
+  `wc -l probes/data/drift_s{1,2}_shard0.jsonl`（各 **187**）。
+- 本任务**结案归档**。
