@@ -52,3 +52,9 @@
 - 冻结口径核验（λ/γ/ρ/gb30/seed/clip/step 落地一致）+ **20 步 smoke 绿**（qstat+log 双证）后，
   方投正式 150 步。smoke 未绿不投。
 - 各臂正式作业号 + ETA 报回，用户终端 qstat 核对。
+
+## 启动记录（2026-07-15）
+- **main 臂 20 步 smoke 绿**（job 33437，exit 0，20/20，train_loss=3.62，v2 分桶 metrics 正常
+  correct~0.51/wrong~0.21/truncated~0.27，~14.6s/step）→ 新 loss 全路径验证通过。
+- **正式矩阵 qsub**（2 卡/臂，150 步）：main=33443 / noB=33444 / noCp=33445 / w05=33446 /
+  len2048=33447 / w0=33448。ETA ~37min/run（2048 ~60min）+ 依赖 eval。
