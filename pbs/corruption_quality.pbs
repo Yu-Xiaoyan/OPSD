@@ -19,8 +19,8 @@ exec > "pbs/logs/corrqual.${PBS_JOBID}.log" 2>&1
 echo "Job ${PBS_JOBID} $(hostname)"; nvidia-smi -L
 PY=~/.conda/envs/opsd/bin/python
 OD=/home/xiaoyan.yu/opsd_outputs
-$PY probes/corruption_quality.py --gen_dir $OD/qwen31b_repro_3xh200_gb30/generations --steps 100,150 --tag A --limit 60
-$PY probes/corruption_quality.py --gen_dir $OD/qwen31b_declip_B_unclipped/generations --steps 100,150 --tag B --limit 60
+$PY probes/corruption_quality.py --gen_dir $OD/qwen31b_repro_3xh200_gb30/generations --steps 100,145 --tag A --limit 60
+$PY probes/corruption_quality.py --gen_dir $OD/qwen31b_declip_B_unclipped/generations --steps 100,145 --tag B --limit 60
 echo "=== 裁决 ==="
 $PY - <<'PYEOF'
 import json
