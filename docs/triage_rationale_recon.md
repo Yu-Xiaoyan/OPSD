@@ -54,3 +54,36 @@
 - **(c)**：`probes/triage_truncated_vt.py`（GPU，1 卡，续写）——138 truncated 续写（cap +4096）
   + verifier-v2 + AUC。续写 138 条估 20–60min（vLLM 批量）；> 2h 则分片。
 - 存储纪律 §4：只落派生标量/AUC，不存 [T,V]。所有作业先 py_compile + 逻辑自检再投。
+
+---
+
+## 结果
+
+### (a) correct vs wrong 漂移份额 —— **FAIL**（`triage_a_drift.json`）
+
+3-seed 均值 overall drift share（%），correct 与 wrong 桶**几乎完全重合**：
+
+| step | correct | wrong | Δ(c−w) |
+|--:|--:|--:|--:|
+| 25 | 36.3 | 35.7 | +0.5 |
+| 50 | 49.1 | 48.5 | +0.6 |
+| 100 | 58.0 | 58.1 | −0.1 |
+| 150 | 60.2 | 60.5 | **−0.3** |
+
+- 150 步 Δ(correct−wrong) = **−0.3pp**（判据 ≥10）→ **FAIL**；per-seed 一致（−0.3/−0.2/−0.3）。
+- 桶内对照 → off-policy 偏置两桶同量抵消，null 稳健。correct n=107 / wrong n=80，不 provisional。
+- **判决**：**correct 桶漂移并不比 wrong 桶多** → "correct 支信号以漂移为主"**不成立** →
+  **correct-支大幅降权/跳过失据 → 架构重审**（替代降权依据待另立，如 teach 绝对量 / 可学空间）。
+
+### (b) wrong vs correct 腐蚀敏感（δ 正向质量，P_T 加权）—— **PASS（贴线）**（`triage_b_delta.json`）
+
+冲突位 P_T 加权 δ 正部均值：correct **0.00773** / wrong **0.01198** → **wrong/correct = 1.55×**
+（判据 ≥1.5）→ **PASS**（贴线，n=107/80，不 provisional）。
+- **判决**：wrong 桶修正需求确高于 correct（1.55×，但仅略过阈）→ **wrong-支目标手术/C′ 前提成立（边际）**。
+
+### (c) truncated V(t) AUC —— 待跑（续写生成，鉴于 (a) 触发架构重审 + 生成成本，开跑前请示）
+
+### 综合判决
+
+- **(a)(b) 半解冻条件 = 未满足**（(a) FAIL）。**wrong-支 C′ 有据、correct-支降权无据**。
+- → **三路分诊架构需重审 correct 支**（见 `v2_design.md` 线 2 的架构重审标注）。训练维持冻结。

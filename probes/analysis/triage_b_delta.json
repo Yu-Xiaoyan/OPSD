@@ -1,0 +1,16 @@
+{
+  "n": {
+    "correct": 107,
+    "wrong": 80
+  },
+  "mean_score": {
+    "correct": 0.007731234701386401,
+    "wrong": 0.011984404607909163
+  },
+  "wrong_over_correct": 1.5501281581530648,
+  "b_pass": true,
+  "provisional": false,
+  "conflict_thr": 0.3,
+  "tok_cap": 768,
+  "verdict": "(b) PASS: wrong/correct=1.55 (≥1.5)"
+}
