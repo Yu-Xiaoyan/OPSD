@@ -1,0 +1,16 @@
+{
+  "n": 138,
+  "n_ontrack": 68,
+  "n_offtrack": 70,
+  "continue_buckets": {
+    "correct": 68,
+    "wrong": 61,
+    "truncated": 9
+  },
+  "auc": 0.6478991596638656,
+  "c_pass": false,
+  "cap": 4096,
+  "Vtrunc_mean": -12.887398425643408,
+  "verdict": "(c) FAIL: AUC=0.648 (>=0.65)",
+  "note": "读数=截断点V(t)=V_values[-1]; label=续写后correct→1,wrong/仍truncated→0"
+}
