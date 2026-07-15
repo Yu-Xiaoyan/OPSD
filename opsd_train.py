@@ -390,6 +390,6 @@ if __name__ == "__main__":
         completions_callback = LogCompletionsCallback(trainer, generation_config, num_prompts=8)
         trainer.add_callback(completions_callback)
 
-    trainer.train()
+    trainer.train(resume_from_checkpoint=training_args.resume_from_checkpoint)
 
     trainer.save_model(training_args.output_dir)
