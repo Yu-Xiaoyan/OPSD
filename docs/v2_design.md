@@ -96,6 +96,8 @@ v2 = **两类正交部件** 组合：**(A) 三路分诊 = 资源分配**（对�
 | **C′-4 对比式** | 对比 π_T vs π_T̃ 的方向性目标（登记） | **第二批候选** | 待设计 |
 
 - **升级路径**：C′-1 有效但幅度小 → 升级试 **C′-4（对比式）**；C′-1 无效 → 换药（C′-2/3）。
+- **C′-4 状态**（查重 2026-07-15）：**查重死刑解除**（vs AOPD 不实质重叠，锚/teacher 不同）；但
+  **公式级推演欠账保留**——C′-4 第二批上场**前置条件不变**（须先补对比式目标的公式级推演）。
 - **δ 加权强度 λ**：pinned **λ=1.0**（默认；见 `v2_launch_prereg.md`，可调）。
 
 ## 与 Purified OPSD 的四坐标差异（查重定位）
@@ -132,21 +134,22 @@ v2 = **两类正交部件** 组合：**(A) 三路分诊 = 资源分配**（对�
   内 correct/incorrect 平衡）+ outcome-guided margin calibration（锚 = **轨迹级 outcome reward 次序**）。
   **与本案正交**：(a) 其对错平衡是**数据采样/组成级**（选哪些 rollout 进 batch），本案分诊是
   **rollout 级 loss 目标切换**（每条走不同 target）；(b) 其锚 = outcome 次序，本案两锚 = **π_S0 漂移轴 /
-  δ 特权差分轴**；(c) 其假设 frozen teacher、**不涉 staleness/drift**（本案 B 漂移扣除正补此缺）；
+  δ 特权差分轴**；(c) 其**不涉及 frozen teacher 信号陈旧问题**（本案 B 漂移扣除处理该轴，二者分工不同）；
   (d) 其 mid-difficulty 上采样与本案难度分层"mid 层信息量高"**同向**，引为难度重加权先例。
   *划界句*：与 Uni-OPD 不同，本案在 **rollout 级切换蒸馏目标**（非 batch 级平衡采样），锚于
-  **漂移（π_S0）与特权差分（δ）**（非轨迹级 outcome 次序），且显式处理 **frozen teacher 漂移**。
+  **漂移（π_S0）与特权差分（δ）**（非轨迹级 outcome 次序）；Uni-OPD **不涉及 frozen teacher 信号陈旧
+  问题**，本案 B（漂移扣除）显式处理该轴。
 - **AOPD / Asymmetric OPD（2605.06387）**：非正优势区把 advantage-weighted PG **换成对 same-policy
   teacher（on-policy 前缀条件）的局部 forward-KL**，无特权/无腐蚀/无对比，**advantage/RL 触发**。
   **与 C′-4（对比式）不实质重叠**：同为"坏区域分布匹配"，但 AOPD 锚 = **advantage**、teacher =
   same-policy；C′-4 锚 = **腐蚀差分 δ**、teacher = 特权 correct vs 腐蚀对比，无 RL。→ **C′-4 保留**
   （不降级），related work 引 AOPD 划界锚差异；**C′-1 不受影响**（更远）。
 - **Unmasking OPD（2605.10889）**：training-free 梯度对齐诊断（per token/question/teacher 的 gradient
-  alignment score）。**独立佐证本案**：其"distillation 在 incorrect rollout 上对齐显著高于 correct
-  （correct 处学生已会、teacher 信号变噪）"**呼应本案裁决二 (i)**（教学含量 wrong>correct 1.27×）与
-  wrong-支手术 rationale；其"wrong demos 伤自蒸馏、hard math 例外"呼应本案难度分层。**不重叠**：其为
-  **梯度轴遥测诊断**，本案为 **rollout 级校准级干预** + 漂移轴（drift share）量化，互补。
-  *引用建议*：作**独立第三方佐证**入 related work 与 (i) 结论并列。
+  alignment score）。**结论与本案独立收敛**：其"distillation 在 incorrect rollout 上对齐显著高于 correct
+  （correct 处学生已会、teacher 信号变噪）"与本案裁决二 (i)（教学含量 wrong>correct 1.27×）**独立收敛**，
+  同向支持 wrong-支手术 rationale；其"wrong demos 伤自蒸馏、hard math 例外"与本案难度分层**独立收敛**。
+  **不重叠**：其为 **梯度轴遥测诊断**，本案为 **rollout 级校准级干预** + 漂移轴（drift share）量化，互补。
+  *措辞纪律*：写作表述为 **"独立收敛"**，**禁"证明了我方"** 类表述。
 
 ## 实验矩阵（**训练冻结**；ω 为消融轴，2026-07-15 终审）
 
