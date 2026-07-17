@@ -6,11 +6,12 @@
 # 评 MODEL_DIR 下 STEPS 各 checkpoint × DATASETS 的矩阵；MODEL_DIR="" 时评 base
 # (未训练 Qwen3-1.7B)。一 checkpoint 一 GPU stream，串行跑其所有 DATASETS；
 # base 情形按 dataset round-robin 到各 GPU。输出 OUT/{TAG}ckpt{step}_{ds}.json
-# (base: OUT/base_{ds}.json)。
+# (base: OUT/{TAG}_{ds}.json，TAG 空时为 OUT/base_{ds}.json)。
 #
 # 参数 (env):
 #   MODEL_DIR  checkpoint 父目录 (空 = base)
-#   TAG        输出前缀 (如 v0 / opsd / v0s1)；base 时忽略
+#   TAG        输出前缀 (如 v0 / opsd / v0s1)；base 时用作文件名本身 (空 -> base)。
+#              同一 OUT 下跑多个不同底座的 base 时必须各给 TAG，否则同名互相覆盖。
 #   OUT        输出目录 (默认 results/matrix_eval)
 #   DATASETS   空格分隔 (默认 "aime24 aime25")
 #   STEPS      空格分隔 (默认 "50 100 150")；base 时忽略
@@ -58,7 +59,7 @@ tasks=()
 if [ -z "$MODEL_DIR" ]; then
     g=0
     for ds in $DATASETS; do
-        tasks+=("$g $ds - base"); g=$(( (g+1) % NGPU ))
+        tasks+=("$g $ds - ${TAG:-base}"); g=$(( (g+1) % NGPU ))
     done
 else
     g=0
