@@ -1,0 +1,27 @@
+{
+  "correct": {
+    "nr": 52,
+    "ntok": 29497,
+    "mean_JSD_Ans_CoT": 0.013821293510353336,
+    "mean_JSD_S_CoT": 0.026439741486683488,
+    "mean_JSD_Ans_S": 0.016593333915807307,
+    "ratio_AnsCoT_over_SCoT": 0.5227469231238324,
+    "closeness_gain_frac": 0.4772530768761676
+  },
+  "wrong": {
+    "nr": 18,
+    "ntok": 12266,
+    "mean_JSD_Ans_CoT": 0.01505117405516406,
+    "mean_JSD_S_CoT": 0.027159907648132905,
+    "mean_JSD_Ans_S": 0.015139307050655285,
+    "ratio_AnsCoT_over_SCoT": 0.5541688230371705,
+    "closeness_gain_frac": 0.4458311769628295
+  },
+  "pooled": {
+    "nr": 70,
+    "mean_JSD_Ans_CoT": 0.01413754850759038,
+    "mean_JSD_S_CoT": 0.026624927071056195,
+    "ratio": 0.5309891918148849,
+    "closeness_gain_frac": 0.4690108081851151
+  }
+}

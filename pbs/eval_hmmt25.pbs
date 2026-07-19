@@ -1,0 +1,32 @@
+#!/bin/bash
+#PBS -N eval_hmmt25
+#PBS -P ds_ccds_wei.lu
+#PBS -q gpu_ded
+#PBS -l select=1:ncpus=8:ngpus=1
+#PBS -l walltime=08:00:00
+#PBS -j oe
+# HMMT25 (MathArena/hmmt_feb_2025, 30题) avg@12, 锁定协议.
+# 单卡任务，任务量由 BTAG(跑base) / STEPS(跑哪些ckpt) 决定，便于均衡切分。
+# qsub -v BM=<model>,MD=<ckptdir>,CTAG=<ckpttag>,OUT=<dir>[,BTAG=<basetag>][,STEPS=100+150][,NG=1] pbs/eval_hmmt25.pbs
+set -uo pipefail
+module purge; module load anaconda/2025; module load cuda/13.1
+eval "$(/usr/local/anaconda2025/bin/conda shell.bash hook)"; conda activate opsd
+cd /home/xiaoyan.yu/projects/OPSD
+export PYTHONUNBUFFERED=1 HF_HUB_OFFLINE=1 NCCL_P2P_DISABLE=1 DS_SKIP_CUDA_CHECK=1
+unset CPATH C_INCLUDE_PATH CPLUS_INCLUDE_PATH
+if echo "${CUDA_VISIBLE_DEVICES:-}" | grep -q "GPU-"; then
+  n=$(echo "${CUDA_VISIBLE_DEVICES}"|tr ',' '\n'|wc -l); CUDA_VISIBLE_DEVICES=$(seq -s, 0 $((n-1))); export CUDA_VISIBLE_DEVICES
+fi
+NG="${NG:-1}"; ST="${STEPS:-}"; BT="${BTAG:-}"
+mkdir -p pbs/logs "$OUT"
+exec > "pbs/logs/eval_hmmt25_${CTAG}${BT:+_base}${ST:+_s${ST}}.${PBS_JOBID}.log" 2>&1
+echo "Job ${PBS_JOBID} BM=$BM BTAG='$BT' CTAG=$CTAG STEPS='$ST' NG=$NG OUT=$OUT $(hostname)"; nvidia-smi -L
+if [ -n "$BT" ]; then
+  echo "=== base ($BT) HMMT25 avg@12 ==="
+  BASE_MODEL="$BM" MODEL_DIR="" TAG="$BT" OUT="$OUT" DATASETS="hmmt25" VAL_N=12 STEPS="" NGPU="$NG" bash scripts/run_eval_matrix.sh
+fi
+if [ -n "$ST" ]; then
+  echo "=== ckpts ($CTAG) steps=$ST HMMT25 avg@12 ==="
+  BASE_MODEL="$BM" MODEL_DIR="$MD" TAG="$CTAG" OUT="$OUT" DATASETS="hmmt25" VAL_N=12 STEPS="$ST" NGPU="$NG" bash scripts/run_eval_matrix.sh
+fi
+echo "=== DONE ==="
