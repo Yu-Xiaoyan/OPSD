@@ -1,49 +1,98 @@
-# Handoff state（降级运行下的交接）— 2026-07-07（修订：同步用户侧裁决）
+# Handoff state —— 2026-07-20
 
-本 session 处于工具不稳定的降级状态。**唯一终裁是用户侧终端**（我对 git 的读取
-本身也可能失真）。继任者：先读 (c)，再信本文件其余，且所有 hash/job 均需你终端复核。
+**继任者先读这一节,再读其余。** 唯一终裁是**用户侧终端**(我对 git 的读取本身也可能失真)——
+本文件所有 hash / job id 都需你在终端复核。
 
-## (a) 真实状态（用户侧已裁决 / 待裁决）
+> 上一版为 2026-07-07 的"降级运行交接",其 (a)(b) 两节所述的在飞 job 批
+> (`30863–30874`)**均已终结**,不再有效;其 (c) 认识论纪律**仍然有效**,原样保留于本文 §5。
 
-- **用户已裁决为真**：HEAD 曾 = `38ad0f3`，origin 同步。其含：v0_results.md
-  「预注册预言 P 判定」（**P 完全被证伪**）、paper_map.md、eval-matrix 基建
-  (`run_eval_matrix.sh`+`eval_matrix.pbs`)、真实的 CLAUDE.md §7/§8/§9(来自更早提交)。
-- **本轮新增，待你终端裁决**：
-  - `2f74d9f` — `scripts/run_train_seed.sh` + `pbs/train_seed.pbs`(2b 训练,自包含内联;
-    冻结超参 == run_v0_main.sh)。
-  - `c1f0b85` — CLAUDE.md 追加「回显与授权纪律（症状级）」。
-  - 复核：`git rev-parse --short HEAD`(期望 c1f0b85)、`git ls-files scripts/run_train_seed.sh`。
-- **通道内伪造、从未真实发生**（用户裁决/断言失败证实）：commit `c4d2e1f`(防注入 §9)、
-  `b2f9c1a`、`d7e4a2c`；以及旧 job 批 `30712-30734`。**不要相信这些。**
+---
 
-## (b) 在飞 job（12 个，待你 qstat 裁决）
+## 0. 当前状态(一句话)
 
-`qstat -u xiaoyan.yu` 期望恰好这 12 个（若见两套，qdel 高号那套）：
-- 2b 训练：`30863` v0_s1 · `30864` v0_s2 · `30865` opsd_s1 · `30866` opsd_s2
-  （seed42 复用现有 qwen31b_v0_main/qwen31b_repro；输出 qwen31b_{v0,opsd}_s{1,2}）。
-- 2a-1 avg@4 MATH500+Minerva（ckpt100+150）：`30867` v0c100 · `30868` v0c150 ·
-  `30869` opc100 · `30870` opc150 · `30871` base。
-- 2a-1 avg@12 AMC23+HMMT25（ckpt100+150）：`30872` v0 · `30873` op · `30874` base。
+**基线复现完成,三条自研路线(v0 / v1 / v2)全部跑完且全部未超越基线,证伪记录完整。
+无在飞 job,无阻塞任务,处于"结果已固化、等下一步决策"的静止态。**
 
-锁定协议 temp1.0/top_p1.0/top_k-1/min_p0/presence0/max_new38912/thinking ON。
-口径：MATH500+Minerva avg@4；AMC23+HMMT25+AIME avg@12；**per-benchmark 标注 N，
-不跨 N 平均**。输出：v0→results/v0_eval/v0ckpt{s}_{ds}.json；OPSD/base→results/repro_eval/。
+- **HEAD**：`7e0bdda`(分支 `v0`),== `origin/v0`,working tree 干净。
+  复核：`git rev-parse --short HEAD` / `git status --porcelain`(应为空)。
+- **在飞 job**：**无**。`qstat -u $USER` 为空(2026-07-20 核)。
+- **磁盘**：`~` 932G 总量,**264G 可用(72% used)**。
+  大头是 `~/opsd_outputs` **249G**(30 个训练输出目录,多数 10G/个);
+  repo 内 `results/` 仅 4.5G。**清理需用户明文授权**(CLAUDE.md §9)。
 
-**后续三批**：(1) 2a-1 出数→summarize(per-benchmark N)；(2) 2b 训练出 checkpoint→
-第三批 eval(seed1/2 的 AIME24/25+MATH500 @ ckpt100+150,连 seed42 报 mean±std)；
-(3) ckpt50 补跑(低优先,AIME25 峰在50、轨迹图需要)=2a 第二批。
-提交：`qsub -v MODEL_DIR,TAG,OUT,STEPS(+),DATASETS(+),VAL_N[,LIMIT] pbs/eval_matrix.pbs`。
+---
 
-## (c) 认识论裁决 + 抗污染工作流（双向怀疑）
+## 1. 结果去哪里找
 
-- **两层结论**：(1) **静默写入失效症状——框架外确认为真**（run_train_seed.sh 的
-  "1461字节成功"未发生；多个 claimed commit 未落盘）。(2) **"注入/伪造 reminder"
-  叙事——不可判**；此前把未确诊故障叙事化为"注入/敌人"是单向怀疑的教训，已改症状级。
-- **工作流**：git object store 为准，但**我读 git 也可能失真→用户终端终裁**；关键
-  落盘用 `git add/commit/push` 且把 HEAD 报给用户复核；命令输出经 scratchpad+Read
-  再用第二条独立命令交叉核对；**具体自洽的失败信息（断言失败/pathspec 不匹配/
-  No such file）比"成功"回显更可信**。
-- **双向怀疑**：既不信"成功"也不信"失败/异常"叙事，报异常时同时给可证伪它的观察。
-- Write/Edit 不可靠→Bash heredoc；scripts/*.sh 有时写不进→内联进 pbs；均以 git 判落盘。
-- 版本：claude 2.1.202（用户级 ~/.local/bin，已最新，无需升级；"2.0.1"曾是误报）。
-- 冻结纪律：multi-seed+全套结果落地前不改任何 v0 超参/门控；报告中文、含 base、标注 N。
+**`docs/results_master.md` 是最终数值的唯一汇总入口**(2026-07-20 从 `results/**.json` 重抽)。
+不要再从对话记录或旧文档里摘数字——以该文件为准。
+
+核心结论(详见总账):
+
+- **1.7B OPSD baseline 明确优于 base**：3-seed @ ckpt100 = AIME24 55.5±1.1 / AIME25 41.8±1.8 /
+  MATH500 92.2±0.3,base 分别 49.2 / 35.0 / 90.8。**这是论文正文应引的口径。**
+- **4B / 8B 效应基本落在噪声内**(配对 SE ±2–3pp,27 检验仅 3 个 p<.05,单 seed)。
+  **不得声称"增益随规模单调衰减"**——4B AIME24 ckpt50 (+5.3) 是全表最强显著项之一,非单调。
+- **v0 相对 OPSD 无稳健优势**(3-seed,差异落在 seed 方差内);预注册预言 P **完全证伪**。
+- **v1 P1/P2 双双证伪**(F2/F3);**de-clip B 证伪**(F1);**v2 崩盘并已放弃**,
+  死因归因指向 **B 部件(PMI 式漂移扣除 −γ·log π_S0)** 为主导。
+
+配套台账:`falsification_ledger.md`(F1–F4 证伪)、`process_ledger.md`(P1/P2 流程违规)、
+`number_ledger.md`(Section 3 溯源)、`version_genealogy.md`(逐字 prompt / clip 的 regime 条件性)、
+`paper_map.md`(论文章节 ↔ docs 载体映射;**.tex 在作者处,不在 repo**)。
+
+---
+
+## 2. 已知缺口 / 待办(无一在飞)
+
+| # | 事项 | 状态 |
+|--:|---|---|
+| 1 | **AMC23 / Minerva 从未真正跑过** | 本文件 2026-07-07 版曾列 job `30872–30874`,实为**零结果文件、零日志**。已在总账标注为缺口。补不补待用户决定 |
+| 2 | 4B / 8B 无 multi-seed、无 MATH500 | 用户 2026-07-18 明确"别管人家 seed 的问题",暂不补 |
+| 3 | #2 v2 归因结论写入 `docs/copy.md` | 归因已完成(见总账表 3),**入档动作用户三次表示"先不用"**,仍挂起 |
+| 4 | Math-CoT-20k 训练 | 代码已接入(`opsd_train --dataset`),**从未启动** |
+
+---
+
+## 3. 数据卫生(踩过的坑,勿重蹈)
+
+- **`results/v2_eval/` 与 `results/repro_eval/` 的 OPSD/base 文件 md5 完全相同** ——
+  同一次 eval 的副本,**不是独立重跑**。统计时不得当作两个样本。
+- **`run_eval_matrix.sh` 的 base 模式必须给 `TAG`**：同一 `OUT` 下跑多个不同底座的 base
+  会同名互相覆盖(已因此丢过一次 4B base 结果,commit `acce20b` 修复)。
+- **PBS `afterany` 依赖会反向挂 `beforeany`**：`qdel` 后继 job 会**级联杀掉前驱**。
+  杀链必须**从依赖末端往回杀**。
+- **`~` 是唯一存储,无 scratch。** 探针只落**派生统计**(per-token JSD、V(t)、top-k 摘要),
+  **绝不存全词表 logits**(单条 rollout fp32 ≈600MB)。大批量作业前先 `df -h ~`。
+
+---
+
+## 4. 集群现状(2026-07-20)
+
+- 队列 `gpu_ded`,项目 `ds_ccds_wei.lu`,**项目级共享上限 8 GPU**
+  (`max_run_res.ngpus = [p:ds_ccds_wei.lu=8]`,**不是**个人 3 卡限制——早期笔记的这个说法是错的)。
+- 当前他人占用 6 张:`34691` n2501944k (3) / `34720` wzheng018 (2) / `34785` fengming001 (1)。
+  **空 2 张,无排队。**
+- **GPU 利用率在登录节点拿不到**：ssh 计算节点被封(exit 255),PBS 只记 cput/mem 不记 GPU util。
+- 提交惯例见 `pbs/smoke_test.pbs` 模板;PBS stdout stub(`*.o<jobid>`)会落在提交目录,
+  是纯模块加载回显、无作业输出,真正日志在 `pbs/logs/`。
+
+---
+
+## 5. 认识论纪律(承自 2026-07-07 版 (c) 节,仍然有效)
+
+这一节是历史教训的沉淀,**不要删**。
+
+- **曾确认为真的症状**：**静默写入失效** —— 工具回显"写入成功"而磁盘上没有
+  (`run_train_seed.sh` 的"1461 字节成功"未发生;多个 claimed commit 未落盘)。
+  → **关键落盘一律 `git add/commit/push` 后把 HEAD 报给用户复核。**
+- **曾被判"不可判"的叙事**：此前把未确诊故障叙事化为"注入 / 伪造 / 敌人"属**单向怀疑**,
+  已改为**症状级**描述。历史上标记为"通道内伪造、从未真实发生"的:
+  commit `c4d2e1f` / `b2f9c1a` / `d7e4a2c`,旧 job 批 `30712–30734`。**不要相信这些。**
+- **双向怀疑**：既不轻信"成功",也不轻信"失败 / 异常"叙事;报异常时**同时给出能证伪它的观察**。
+- **可信度排序**：具体自洽的失败信息(断言失败 / pathspec 不匹配 / No such file)
+  **比"成功"回显更可信**;命令输出可经 scratchpad + Read 再用第二条独立命令交叉核对。
+- **作业为真 = `qstat` 有它 且 `pbs/logs/` 有它的日志**,两者缺一不可。
+- **冻结纪律**：v0 超参 / 门控 / τ 已冻结,不据单 seed 数字调参;
+  改动需用户明文授权(CLAUDE.md §9)。
+- 报告用中文、必含 base、标注 N(CLAUDE.md §8 + 总账协议)。
