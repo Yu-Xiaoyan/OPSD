@@ -3,12 +3,17 @@
 #PBS -P ds_ccds_wei.lu
 #PBS -q gpu_ded
 #PBS -l select=1:ncpus=8:ngpus=1
-#PBS -l walltime=12:00:00
+#PBS -l walltime=48:00:00
 #PBS -j oe
 #PBS -o pbs/logs/
-# 1.7B 500 步长程对照的单 ckpt 评测 —— 单卡单任务, 一个作业一个 ckpt, 三个 benchmark 串行。
-#   qsub -v ARM=opsd,STEP=500 pbs/eval_s500_ckpt.pbs
-#   qsub -v ARM=ema, STEP=500 pbs/eval_s500_ckpt.pbs
+# 1.7B 500 步长程对照的评测 —— 一张卡跑完一条 arm 的全部 ckpt, 按 STEPS 顺序串行。
+#   qsub -v ARM=opsd pbs/eval_s500_ckpt.pbs                    # 默认 500->50 全部
+#   qsub -v ARM=ema,STEPS=500+400+300 pbs/eval_s500_ckpt.pbs   # 也可只挑几个
+#
+# 为什么一个作业而不是 10 个: 项目 8 卡配额被组内共享, 拆成 10 个作业会全部堵在
+#   Q 态互相排队。单作业占 1 卡顺序跑完, 只需排一次队。
+# 中断不致命: run_eval_matrix.sh 每评完一个 (ckpt, dataset) 就落一个 json,
+#   已完成的部分不会丢, 重跑时把 STEPS 改成剩下的即可。
 #
 # 锁定协议(docs/results_master.md): temp 1.0 / top_p 1.0 / top_k -1 / min_p 0 /
 #   presence 0 / max_new 38912 / thinking ON / avg@12, 30 题满量。
@@ -17,7 +22,8 @@
 #   results/v2_eval/base_hmmt25.json  ->  49.2 / 35.0 / 23.6
 set -euo pipefail
 : "${ARM:?need ARM=opsd|ema}"
-: "${STEP:?need STEP (50..500, 步长 50)}"
+# STEPS 用 + 分隔 (qsub -v 里逗号是分隔符, 不能用)。默认从后往前评。
+STEPS="${STEPS:-500+450+400+350+300+250+200+150+100+50}"
 # TAG 必须区分 arm, 否则同一 OUT 下同名互相覆盖(commit acce20b 的教训)。
 case "$ARM" in
   opsd) RC="qwen31b_opsd_s500";   TAG="1bopsd500" ;;
@@ -33,34 +39,39 @@ if echo "${CUDA_VISIBLE_DEVICES:-}" | grep -q "GPU-"; then
   n=$(echo "${CUDA_VISIBLE_DEVICES}"|tr ',' '\n'|wc -l); CUDA_VISIBLE_DEVICES=$(seq -s, 0 $((n-1))); export CUDA_VISIBLE_DEVICES
 fi
 mkdir -p pbs/logs results/s500_eval
-exec > "pbs/logs/s500eval_${TAG}_s${STEP}.${PBS_JOBID}.log" 2>&1
-echo "Job ${PBS_JOBID} ARM=$ARM STEP=$STEP RC=$RC TAG=$TAG $(hostname)"; nvidia-smi -L
+exec > "pbs/logs/s500eval_${TAG}.${PBS_JOBID}.log" 2>&1
+echo "Job ${PBS_JOBID} ARM=$ARM RC=$RC TAG=$TAG STEPS=$STEPS $(hostname)"; nvidia-smi -L
 
-CK="/home/xiaoyan.yu/opsd_outputs/${RC}/checkpoint-${STEP}"
-if [ ! -d "$CK" ]; then echo "FATAL: missing $CK"; exit 2; fi
-echo "checkpoint OK: $CK"
+# 先把所有 ckpt 存在性查一遍, 免得跑了 20 小时才在最后一个上失败。
+for S in ${STEPS//+/ }; do
+  CK="/home/xiaoyan.yu/opsd_outputs/${RC}/checkpoint-${S}"
+  [ -d "$CK" ] || { echo "FATAL: missing $CK"; exit 2; }
+done
+echo "全部 ckpt 就位: ${STEPS//+/ }"
 
 BASE_MODEL=/home/xiaoyan.yu/models/Qwen3-1.7B \
 MODEL_DIR="/home/xiaoyan.yu/opsd_outputs/${RC}" \
 TAG="$TAG" \
 OUT=results/s500_eval \
 DATASETS="aime24+aime25+hmmt25" \
-STEPS="${STEP}" \
+STEPS="$STEPS" \
 VAL_N=12 \
 NGPU=1 \
 bash scripts/run_eval_matrix.sh && RC_EXIT=0 || RC_EXIT=$?
 # set -e 下不可写成换行再 `RC_EXIT=$?` —— 失败会直接退出, 捕获不到。
 echo "=== exit $RC_EXIT DONE ==="
 
-echo "=== 本 ckpt 结果 (base 参照: aime24 49.2 / aime25 35.0 / hmmt25 23.6) ==="
-for ds in aime24 aime25 hmmt25; do
-  f="results/s500_eval/${TAG}ckpt${STEP}_${ds}.json"
-  if [ -f "$f" ]; then
-    ~/.conda/envs/opsd/bin/python -c "
+echo "=== 全部结果 (base 参照: aime24 49.2 / aime25 35.0 / hmmt25 23.6) ==="
+for S in ${STEPS//+/ }; do
+  for ds in aime24 aime25 hmmt25; do
+    f="results/s500_eval/${TAG}ckpt${S}_${ds}.json"
+    if [ -f "$f" ]; then
+      ~/.conda/envs/opsd/bin/python -c "
 import json;d=json.load(open('$f'))
-print(f\"  {d['dataset']:8} avg@{d['val_n']} = {d['average_at_n_pct']:.1f}%  (n_prob={d['num_problems']})\")"
-  else
-    echo "  $ds  MISSING"
-  fi
+print(f\"  ckpt$S {d['dataset']:8} avg@{d['val_n']} = {d['average_at_n_pct']:.1f}%\")"
+    else
+      echo "  ckpt$S $ds  MISSING"
+    fi
+  done
 done
 exit $RC_EXIT
