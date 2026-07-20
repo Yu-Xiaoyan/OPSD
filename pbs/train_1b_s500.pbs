@@ -1,0 +1,89 @@
+#!/bin/bash
+#PBS -N s500train
+#PBS -P ds_ccds_wei.lu
+#PBS -q gpu_ded
+#PBS -l select=1:ncpus=8:ngpus=1
+#PBS -l walltime=10:00:00
+#PBS -j oe
+#PBS -o pbs/logs/
+# 1.7B 长程对照 (500 步) —— 同一脚本切两条 arm, 保证除 teacher 策略外逐字一致。
+#   qsub -v TEACHER=fixed pbs/train_1b_s500.pbs      # Arm A: OPSD 基线
+#   qsub -v TEACHER=ema   pbs/train_1b_s500.pbs      # Arm B: EMA teacher, decay 0.99
+#
+# 问题: OPSD 在 1.7B 上 ckpt100 达峰后回落(曲率 c=+0.95pp p=.016, 末段 -1.12pp p=.019,
+#   N=590, seed42)。EMA teacher 会不会同样回落? 跑到 500 步看两条曲线是否分叉。
+#
+# ⚠️ 单卡 => accum 必须 6, 否则 global batch 掉到 1/3, 与 1.7B 基线不可比:
+#      per_device 5 x accum 6 x 1 卡 = 30  (冻结口径 gb30, 原为 5 x 2 x 3 卡)
+# ⚠️ decay 取 0.99 而非 0.999: 0.999^500 = 0.607, teacher 六成仍锚在初始点 ->
+#      退化成 fixed_teacher, 两条 arm 变成同一个东西。0.99^500 = 0.0066, 真正跟随。
+# ⚠️ EMA 状态不进 checkpoint => **绝不可 resume**, 中断必须从头重跑。walltime 给 10h
+#      (单卡估 35-40s/step x 500 ≈ 5-5.5h) 就是为了不触发中断。
+set -euo pipefail
+: "${TEACHER:?need TEACHER=fixed|ema}"
+MODEL="${MODEL:-/home/xiaoyan.yu/models/Qwen3-1.7B}"
+case "$TEACHER" in
+  fixed) TFLAG="--fixed_teacher";                   RC="${RC:-qwen31b_opsd_s500}"   ;;
+  ema)   TFLAG="--use_ema_teacher --ema_decay 0.99"; RC="${RC:-qwen31b_ema099_s500}" ;;
+  *) echo "FATAL: TEACHER must be fixed|ema, got '$TEACHER'"; exit 2 ;;
+esac
+module purge; module load anaconda/2025; module load cuda/13.1
+eval "$(/usr/local/anaconda2025/bin/conda shell.bash hook)"; conda activate opsd
+cd /home/xiaoyan.yu/projects/OPSD
+export PYTHONUNBUFFERED=1 HF_HUB_OFFLINE=1 HF_DATASETS_OFFLINE=1 DS_SKIP_CUDA_CHECK=1
+export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+unset CPATH C_INCLUDE_PATH CPLUS_INCLUDE_PATH
+if echo "${CUDA_VISIBLE_DEVICES:-}" | grep -q "GPU-"; then
+  n=$(echo "${CUDA_VISIBLE_DEVICES}"|tr ',' '\n'|wc -l); CUDA_VISIBLE_DEVICES=$(seq -s, 0 $((n-1))); export CUDA_VISIBLE_DEVICES
+fi
+PORT=$((14200 + RANDOM%300))
+mkdir -p pbs/logs
+LOG="pbs/logs/${RC}.${PBS_JOBID}.log"
+UTIL="pbs/logs/${RC}.${PBS_JOBID}.gpuutil.csv"
+exec > "$LOG" 2>&1
+echo "Job ${PBS_JOBID} MODEL=$MODEL RC=$RC TEACHER=$TEACHER TFLAG='$TFLAG' $(hostname)"; nvidia-smi -L
+
+nvidia-smi --query-gpu=timestamp,index,utilization.gpu,memory.used,memory.total \
+           --format=csv,noheader -l 30 > "$UTIL" 2>/dev/null &
+SMI_PID=$!
+# 采样器显式收割 (34846/34847 两次卡在 PBS E 状态的嫌疑之一)。
+cleanup_smi() {
+  kill "$SMI_PID" 2>/dev/null || true
+  sleep 1
+  kill -9 "$SMI_PID" 2>/dev/null || true
+  wait "$SMI_PID" 2>/dev/null || true
+}
+trap cleanup_smi EXIT
+
+accelerate launch --config_file accelerate.yaml --num_processes 1 --gradient_accumulation_steps 6 \
+  --main_process_port $PORT opsd_train.py \
+  --model_name_or_path "$MODEL" --seed 42 \
+  --dataset "${DATASET:-siyanzhao/Openthoughts_math_30k_opsd}" --privilege_mode "${PRIV:-solution}" \
+  --learning_rate 5e-6 --max_grad_norm 0.1 --per_device_train_batch_size 5 \
+  --gradient_checkpointing --gradient_accumulation_steps 6 \
+  --output_dir /home/xiaoyan.yu/opsd_outputs/ --run_config "$RC" \
+  --num_train_epochs 30 --max_steps 500 --max_completion_length 1024 --save_steps 50 \
+  --logging_steps 5 --attn_implementation flash_attention_2 --torch_dtype bfloat16 \
+  --max_length 20000 --beta 0 --use_vllm --vllm_mode colocate \
+  --vllm_gpu_memory_utilization 0.6 --vllm_tensor_parallel_size 1 \
+  --use_peft --lora_r 64 --lora_alpha 128 \
+  --lora_target_modules q_proj k_proj v_proj o_proj gate_proj up_proj down_proj \
+  --temperature 1.1 --top_p 0.95 --top_k 20 --lmbda 1 \
+  $TFLAG \
+  --wandb_project opsd-s500 && RC_EXIT=0 || RC_EXIT=$?
+# set -e 下不可写成换行再 `RC_EXIT=$?` —— 失败会直接退出, 捕获不到 (train_opsd.pbs:39 就有这个 bug)。
+echo "=== exit $RC_EXIT DONE ==="
+
+cleanup_smi
+echo "=== ckpt 落盘 (应为 10 个: 50,100,...,500) ==="
+ls -d /home/xiaoyan.yu/opsd_outputs/${RC}/checkpoint-* 2>/dev/null | sort -t- -k2 -n || echo "(无 checkpoint!)"
+echo "=== GPU 利用率汇总 ==="
+awk -F', *' 'NF>=5 {
+    gsub(/ MiB/,"",$4); gsub(/ MiB/,"",$5); gsub(/ %/,"",$3);
+    i=$2; n[i]++; sm[i]+=$3; if($3>smx[i])smx[i]=$3;
+    m=$4/$5*100; mem[i]+=m; if(m>memx[i])memx[i]=m
+} END {
+    printf "gpu  samples  SM_avg%%  SM_max%%  MEM_avg%%  MEM_max%%\n";
+    for(i in n) printf "%3s %8d %8.1f %8.1f %9.1f %9.1f\n", i, n[i], sm[i]/n[i], smx[i], mem[i]/n[i], memx[i]
+}' "$UTIL" 2>/dev/null || echo "(采样文件异常)"
+exit $RC_EXIT

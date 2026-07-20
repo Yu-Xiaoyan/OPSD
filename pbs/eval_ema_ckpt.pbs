@@ -1,0 +1,63 @@
+#!/bin/bash
+#PBS -N ema4b_eval
+#PBS -P ds_ccds_wei.lu
+#PBS -q gpu_ded
+#PBS -l select=1:ncpus=8:ngpus=1
+#PBS -l walltime=12:00:00
+#PBS -j oe
+#PBS -o pbs/logs/
+# EMA 4B 单 ckpt 评测 — 单卡单任务, 一个作业负责一个 ckpt 的 aime24+aime25+hmmt25。
+#   qsub -v STEP=50  pbs/eval_ema_ckpt.pbs
+#
+# 锁定协议(docs/results_master.md): temp 1.0 / top_p 1.0 / top_k -1 / min_p 0 /
+#   presence 0 / max_new 38912 / thinking ON / avg@12, 30 题满量。
+# 输出: results/ema_eval/{TAG}ckpt{STEP}_{ds}.json
+# 对照: 4B base = results/opsd_eval/4bbase_*.json (71.9 / 65.8 / 43.1);
+#       4B OPSD 基线 = results/opsd_eval/4bopsdckpt*_*.json。
+set -euo pipefail
+: "${STEP:?need STEP (50|100|150)}"
+RC="${RC:-qwen3_4b_ema099_openthoughts}"
+# TAG 必须区分不同 decay 的 run, 否则同一 OUT 下同名互相覆盖(commit acce20b 的教训)。
+#   4bema0999 = ema_decay 0.999 (仅 ckpt50, 早期止损保留)
+#   4bema099  = ema_decay 0.99  (主 run, ckpt 50/100/150)
+TAG="${TAG:-4bema099}"
+module purge; module load anaconda/2025; module load cuda/13.1
+eval "$(/usr/local/anaconda2025/bin/conda shell.bash hook)"; conda activate opsd
+cd /home/xiaoyan.yu/projects/OPSD
+export PYTHONUNBUFFERED=1 HF_HUB_OFFLINE=1 HF_DATASETS_OFFLINE=1
+unset CPATH C_INCLUDE_PATH CPLUS_INCLUDE_PATH
+if echo "${CUDA_VISIBLE_DEVICES:-}" | grep -q "GPU-"; then
+  n=$(echo "${CUDA_VISIBLE_DEVICES}"|tr ',' '\n'|wc -l); CUDA_VISIBLE_DEVICES=$(seq -s, 0 $((n-1))); export CUDA_VISIBLE_DEVICES
+fi
+mkdir -p pbs/logs results/ema_eval
+exec > "pbs/logs/ema4b_eval_${TAG}_s${STEP}.${PBS_JOBID}.log" 2>&1
+echo "Job ${PBS_JOBID} STEP=$STEP RC=$RC TAG=$TAG $(hostname)"; nvidia-smi -L
+
+CK="/home/xiaoyan.yu/opsd_outputs/${RC}/checkpoint-${STEP}"
+if [ ! -d "$CK" ]; then echo "FATAL: missing $CK"; exit 2; fi
+echo "checkpoint OK: $CK"
+
+# NGPU=1 -> 三个 dataset 在这一张卡上串行; TAG 必须给(base/多底座同名覆盖坑, commit acce20b)
+BASE_MODEL=/home/xiaoyan.yu/models/Qwen3-4B \
+MODEL_DIR="/home/xiaoyan.yu/opsd_outputs/${RC}" \
+TAG="$TAG" \
+OUT=results/ema_eval \
+DATASETS="aime24+aime25+hmmt25" \
+STEPS="${STEP}" \
+VAL_N=12 \
+NGPU=1 \
+bash scripts/run_eval_matrix.sh && RC_EXIT=0 || RC_EXIT=$?
+echo "=== exit $RC_EXIT DONE ==="
+
+echo "=== 本 ckpt 结果 ==="
+for ds in aime24 aime25 hmmt25; do
+  f="results/ema_eval/${TAG}ckpt${STEP}_${ds}.json"
+  if [ -f "$f" ]; then
+    ~/.conda/envs/opsd/bin/python -c "
+import json;d=json.load(open('$f'))
+print(f\"  {d['dataset']:8} avg@{d['val_n']} = {d['average_at_n_pct']:.1f}%  (n_prob={d['num_problems']})\")"
+  else
+    echo "  $ds  MISSING"
+  fi
+done
+exit $RC_EXIT

@@ -1,0 +1,79 @@
+#!/bin/bash
+#PBS -N ema_smoke
+#PBS -P ds_ccds_wei.lu
+#PBS -q gpu_ded
+#PBS -l select=1:ncpus=8:ngpus=2
+#PBS -l walltime=01:00:00
+#PBS -j oe
+#PBS -o pbs/logs/
+# EMA teacher 冒烟测试 (10 步). qsub pbs/ema_smoke.pbs
+#
+# 目的 —— 只验"代码路径能不能跑通", **不产出任何性能数字, 不构成 EMA 路线重开裁决**:
+#   (a) ZeRO-2 + CPU optimizer offload 下 _ema_teacher_context 的 param.data 重绑不炸;
+#   (b) 日志出现 "EMA TEACHER MODE ENABLED" + "EMA teacher initialized";
+#   (c) 10 步跑完、loss 有限、无 NaN。
+# 离线逻辑验证(9 组, CPU)已全过, 见 probes/tests/test_ema_logic.py。
+#
+# 配置 = 冻结口径逐字不动 (与 train_opsd.pbs 同): 2 卡 x per_device 5 x accum 3
+#   = global batch 30 (与 3 卡版 5x2x3 一致), clip 0.05 / TM-off / 1024 / solution /
+#   lr 5e-6 / LoRA r64 a128 / vLLM colocate 0.6。
+# 唯一改动 = teacher 策略: --fixed_teacher  ->  --use_ema_teacher --ema_decay 0.999
+#   (两者在 trainer 内互斥, 必须换掉而非叠加)。
+# 不落 checkpoint (save_strategy no), 避免给 249G 的 opsd_outputs 再加量。
+set -euo pipefail
+MODEL="${MODEL:-/home/xiaoyan.yu/models/Qwen3-1.7B}"
+RC="${RC:-qwen31b_ema_smoke}"
+DECAY="${DECAY:-0.999}"
+module purge; module load anaconda/2025; module load cuda/13.1
+eval "$(/usr/local/anaconda2025/bin/conda shell.bash hook)"; conda activate opsd
+cd /home/xiaoyan.yu/projects/OPSD
+export PYTHONUNBUFFERED=1 HF_HUB_OFFLINE=1 HF_DATASETS_OFFLINE=1 DS_SKIP_CUDA_CHECK=1
+export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+unset CPATH C_INCLUDE_PATH CPLUS_INCLUDE_PATH
+if echo "${CUDA_VISIBLE_DEVICES:-}" | grep -q "GPU-"; then
+  n=$(echo "${CUDA_VISIBLE_DEVICES}"|tr ',' '\n'|wc -l); CUDA_VISIBLE_DEVICES=$(seq -s, 0 $((n-1))); export CUDA_VISIBLE_DEVICES
+fi
+PORT=$((14200 + RANDOM%300))
+mkdir -p pbs/logs
+LOG="pbs/logs/${RC}.${PBS_JOBID}.log"
+UTIL="pbs/logs/${RC}.${PBS_JOBID}.gpuutil.csv"
+exec > "$LOG" 2>&1
+echo "Job ${PBS_JOBID} MODEL=$MODEL RC=$RC DECAY=$DECAY $(hostname)"; nvidia-smi -L
+
+# --- GPU 采样器: 作业跑在计算节点上, nvidia-smi 在此可用(登录节点不可用) ---
+# 每 5s 记一次显存与 SM 利用率。达标口径 = 显存占用(用户 2026-07-20 裁定)。
+nvidia-smi --query-gpu=timestamp,index,utilization.gpu,memory.used,memory.total \
+           --format=csv,noheader -l 5 > "$UTIL" 2>/dev/null &
+SMI_PID=$!
+trap 'kill $SMI_PID 2>/dev/null || true' EXIT
+
+accelerate launch --config_file accelerate.yaml --num_processes 2 --gradient_accumulation_steps 3 \
+  --main_process_port $PORT opsd_train.py \
+  --model_name_or_path "$MODEL" --seed 42 \
+  --dataset "${DATASET:-siyanzhao/Openthoughts_math_30k_opsd}" --privilege_mode "${PRIV:-solution}" \
+  --learning_rate 5e-6 --max_grad_norm 0.1 --per_device_train_batch_size 5 \
+  --gradient_checkpointing --gradient_accumulation_steps 3 \
+  --output_dir /home/xiaoyan.yu/opsd_outputs/ --run_config "$RC" \
+  --num_train_epochs 30 --max_steps 10 --max_completion_length 1024 \
+  --save_strategy no \
+  --logging_steps 1 --attn_implementation flash_attention_2 --torch_dtype bfloat16 \
+  --max_length 20000 --beta 0 --use_vllm --vllm_mode colocate \
+  --vllm_gpu_memory_utilization 0.6 --vllm_tensor_parallel_size 1 \
+  --use_peft --lora_r 64 --lora_alpha 128 \
+  --lora_target_modules q_proj k_proj v_proj o_proj gate_proj up_proj down_proj \
+  --temperature 1.1 --top_p 0.95 --top_k 20 --lmbda 1 \
+  --use_ema_teacher --ema_decay "$DECAY" \
+  --wandb_project opsd-ema-smoke && RC_EXIT=0 || RC_EXIT=$?
+# 注意: set -e 下不能写 `cmd` 换行再 `RC_EXIT=$?` —— 失败会直接退出, 捕获不到。
+echo "=== exit $RC_EXIT DONE ==="
+
+kill $SMI_PID 2>/dev/null || true
+echo "=== GPU 利用率汇总 (采样自 $UTIL) ==="
+awk -F', *' 'NF>=5 {
+    gsub(/ MiB/,"",$4); gsub(/ MiB/,"",$5); gsub(/ %/,"",$3);
+    i=$2; n[i]++; sm[i]+=$3; if($3>smx[i])smx[i]=$3;
+    mem[i]+=$4/$5*100; if($4/$5*100>memx[i])memx[i]=$4/$5*100
+} END {
+    printf "gpu  samples  SM_avg%%  SM_max%%  MEM_avg%%  MEM_max%%\n";
+    for(i in n) printf "%3s %8d %8.1f %8.1f %9.1f %9.1f\n", i, n[i], sm[i]/n[i], smx[i], mem[i]/n[i], memx[i]
+}' "$UTIL" 2>/dev/null || echo "(采样文件为空或格式异常)"
