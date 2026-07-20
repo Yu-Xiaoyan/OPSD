@@ -1,0 +1,66 @@
+#!/bin/bash
+#PBS -N s500eval
+#PBS -P ds_ccds_wei.lu
+#PBS -q gpu_ded
+#PBS -l select=1:ncpus=8:ngpus=1
+#PBS -l walltime=12:00:00
+#PBS -j oe
+#PBS -o pbs/logs/
+# 1.7B 500 步长程对照的单 ckpt 评测 —— 单卡单任务, 一个作业一个 ckpt, 三个 benchmark 串行。
+#   qsub -v ARM=opsd,STEP=500 pbs/eval_s500_ckpt.pbs
+#   qsub -v ARM=ema, STEP=500 pbs/eval_s500_ckpt.pbs
+#
+# 锁定协议(docs/results_master.md): temp 1.0 / top_p 1.0 / top_k -1 / min_p 0 /
+#   presence 0 / max_new 38912 / thinking ON / avg@12, 30 题满量。
+# 输出: results/s500_eval/{TAG}ckpt{STEP}_{ds}.json
+# 对照 base(1.7B, 不需重跑): results/repro_eval/base_{aime24,aime25}.json,
+#   results/v2_eval/base_hmmt25.json  ->  49.2 / 35.0 / 23.6
+set -euo pipefail
+: "${ARM:?need ARM=opsd|ema}"
+: "${STEP:?need STEP (50..500, 步长 50)}"
+# TAG 必须区分 arm, 否则同一 OUT 下同名互相覆盖(commit acce20b 的教训)。
+case "$ARM" in
+  opsd) RC="qwen31b_opsd_s500";   TAG="1bopsd500" ;;
+  ema)  RC="qwen31b_ema099_s500"; TAG="1bema500"  ;;
+  *) echo "FATAL: ARM must be opsd|ema, got '$ARM'"; exit 2 ;;
+esac
+module purge; module load anaconda/2025; module load cuda/13.1
+eval "$(/usr/local/anaconda2025/bin/conda shell.bash hook)"; conda activate opsd
+cd /home/xiaoyan.yu/projects/OPSD
+export PYTHONUNBUFFERED=1 HF_HUB_OFFLINE=1 HF_DATASETS_OFFLINE=1
+unset CPATH C_INCLUDE_PATH CPLUS_INCLUDE_PATH
+if echo "${CUDA_VISIBLE_DEVICES:-}" | grep -q "GPU-"; then
+  n=$(echo "${CUDA_VISIBLE_DEVICES}"|tr ',' '\n'|wc -l); CUDA_VISIBLE_DEVICES=$(seq -s, 0 $((n-1))); export CUDA_VISIBLE_DEVICES
+fi
+mkdir -p pbs/logs results/s500_eval
+exec > "pbs/logs/s500eval_${TAG}_s${STEP}.${PBS_JOBID}.log" 2>&1
+echo "Job ${PBS_JOBID} ARM=$ARM STEP=$STEP RC=$RC TAG=$TAG $(hostname)"; nvidia-smi -L
+
+CK="/home/xiaoyan.yu/opsd_outputs/${RC}/checkpoint-${STEP}"
+if [ ! -d "$CK" ]; then echo "FATAL: missing $CK"; exit 2; fi
+echo "checkpoint OK: $CK"
+
+BASE_MODEL=/home/xiaoyan.yu/models/Qwen3-1.7B \
+MODEL_DIR="/home/xiaoyan.yu/opsd_outputs/${RC}" \
+TAG="$TAG" \
+OUT=results/s500_eval \
+DATASETS="aime24+aime25+hmmt25" \
+STEPS="${STEP}" \
+VAL_N=12 \
+NGPU=1 \
+bash scripts/run_eval_matrix.sh && RC_EXIT=0 || RC_EXIT=$?
+# set -e 下不可写成换行再 `RC_EXIT=$?` —— 失败会直接退出, 捕获不到。
+echo "=== exit $RC_EXIT DONE ==="
+
+echo "=== 本 ckpt 结果 (base 参照: aime24 49.2 / aime25 35.0 / hmmt25 23.6) ==="
+for ds in aime24 aime25 hmmt25; do
+  f="results/s500_eval/${TAG}ckpt${STEP}_${ds}.json"
+  if [ -f "$f" ]; then
+    ~/.conda/envs/opsd/bin/python -c "
+import json;d=json.load(open('$f'))
+print(f\"  {d['dataset']:8} avg@{d['val_n']} = {d['average_at_n_pct']:.1f}%  (n_prob={d['num_problems']})\")"
+  else
+    echo "  $ds  MISSING"
+  fi
+done
+exit $RC_EXIT
