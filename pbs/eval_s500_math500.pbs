@@ -1,0 +1,76 @@
+#!/bin/bash
+#PBS -N s500m500
+#PBS -P ds_ccds_wei.lu
+#PBS -q gpu_ded
+#PBS -l select=1:ncpus=8:ngpus=1
+#PBS -l walltime=24:00:00
+#PBS -j oe
+#PBS -o pbs/logs/
+# 1.7B 500 步长程对照的 MATH500 回填 —— 一张卡跑完一条 arm 的 4 个 ckpt。
+#   qsub -v ARM=opsd pbs/eval_s500_math500.pbs
+#   qsub -v ARM=ema  pbs/eval_s500_math500.pbs
+#
+# 为什么补 MATH500: aime24/25/hmmt25 各只有 30 题, 前段窗口(50/100/150)配对 SE
+#   仅 0.89pp (MDE 2.49pp), 判不动 ~1pp 量级的 arm 间差。用仓库已有的 MATH500@4
+#   数据实测, 单个 ckpt 的配对 SE 就是 0.74pp —— 500 题比 90 题更精确, 且 75% 的
+#   题两 arm 差值恒为 0, 信息集中在剩下 25%。合并后前段窗口 SE 约 0.44pp。
+#
+# ⚠️ val_n 必须是 4, 不是 12。MATH500 的社区惯例是 avg@4, 且本仓库既有全部
+#   MATH500 结果 (results/declip_eval/, results/multiseed_eval/) 都是 val_n=4。
+#   改成 12 会与自己的历史数字失去可比性。其余采样参数与锁定协议一致。
+#
+# ckpt 选点: 50/100/150 覆盖峰区(两 arm 的峰都在 ckpt100), 500 覆盖终点, 用于
+#   峰后 Δ = ckpt500 - ckpt100 (AIME 口径下 OPSD -3.5pp / EMA -8.2pp, ΔΔ p=.0035)。
+# 输出: results/s500_eval/{TAG}ckpt{STEP}_math500.json (与 AIME 那批同目录同前缀)
+set -euo pipefail
+: "${ARM:?need ARM=opsd|ema}"
+# STEPS 用 + 分隔 (qsub -v 里逗号是分隔符, 不能用)。
+STEPS="${STEPS:-100+500+150+50}"   # 先 100/500 —— 主结果那一对最先出
+case "$ARM" in
+  opsd) RC="qwen31b_opsd_s500";   TAG="1bopsd500" ;;
+  ema)  RC="qwen31b_ema099_s500"; TAG="1bema500"  ;;
+  *) echo "FATAL: ARM must be opsd|ema, got '$ARM'"; exit 2 ;;
+esac
+module purge; module load anaconda/2025; module load cuda/13.1
+eval "$(/usr/local/anaconda2025/bin/conda shell.bash hook)"; conda activate opsd
+cd /home/xiaoyan.yu/projects/OPSD
+export PYTHONUNBUFFERED=1 HF_HUB_OFFLINE=1 HF_DATASETS_OFFLINE=1
+unset CPATH C_INCLUDE_PATH CPLUS_INCLUDE_PATH
+if echo "${CUDA_VISIBLE_DEVICES:-}" | grep -q "GPU-"; then
+  n=$(echo "${CUDA_VISIBLE_DEVICES}"|tr ',' '\n'|wc -l); CUDA_VISIBLE_DEVICES=$(seq -s, 0 $((n-1))); export CUDA_VISIBLE_DEVICES
+fi
+mkdir -p pbs/logs results/s500_eval
+exec > "pbs/logs/s500m500_${TAG}.${PBS_JOBID}.log" 2>&1
+echo "Job ${PBS_JOBID} ARM=$ARM RC=$RC TAG=$TAG STEPS=$STEPS VAL_N=4 $(hostname)"; nvidia-smi -L
+
+# 先把所有 ckpt 存在性查一遍, 免得跑了几小时才在最后一个上失败。
+for S in ${STEPS//+/ }; do
+  CK="/home/xiaoyan.yu/opsd_outputs/${RC}/checkpoint-${S}"
+  [ -d "$CK" ] || { echo "FATAL: missing $CK"; exit 2; }
+done
+echo "全部 ckpt 就位: ${STEPS//+/ }"
+
+BASE_MODEL=/home/xiaoyan.yu/models/Qwen3-1.7B \
+MODEL_DIR="/home/xiaoyan.yu/opsd_outputs/${RC}" \
+TAG="$TAG" \
+OUT=results/s500_eval \
+DATASETS="math500" \
+STEPS="$STEPS" \
+VAL_N=4 \
+NGPU=1 \
+bash scripts/run_eval_matrix.sh && RC_EXIT=0 || RC_EXIT=$?
+# set -e 下不可写成换行再 `RC_EXIT=$?` —— 失败会直接退出, 捕获不到。
+echo "=== exit $RC_EXIT DONE ==="
+
+echo "=== MATH500 结果 (avg@4, 500 题) ==="
+for S in ${STEPS//+/ }; do
+  f="results/s500_eval/${TAG}ckpt${S}_math500.json"
+  if [ -f "$f" ]; then
+    ~/.conda/envs/opsd/bin/python -c "
+import json;d=json.load(open('$f'))
+print(f\"  ckpt$S math500 avg@{d['val_n']} = {d['average_at_n_pct']:.1f}%  (n={d['num_problems']})\")"
+  else
+    echo "  ckpt$S math500  MISSING"
+  fi
+done
+exit $RC_EXIT
